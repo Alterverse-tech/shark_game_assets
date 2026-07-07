@@ -25,12 +25,12 @@ Use `auto` only when you are comfortable with the server choosing from the promp
 
 ## Environment
 
-The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks to a remote asset API and needs two environment variables, which the user obtains from the service publisher:
+The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks to the default remote asset API at `http://54.81.110.182:3001`.
 
-- `GAME_ASSETS_API_URL` — base URL of the asset API
+- `GAME_ASSETS_API_URL` — optional override for the asset API base URL
 - `GAME_ASSETS_API_TOKEN` — per-user access token
 
-If they are missing, ask the user to set them before generating. Never ask for Tripo or Gemini API keys; they live on the server.
+If the token is missing and the service requires authentication, ask the user to set `GAME_ASSETS_API_TOKEN` before generating. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
 
 ## Tool workflow
 
@@ -98,7 +98,7 @@ Example `--params` JSON:
 
 ## Failure handling
 
-- Asset API unreachable (readiness reports `unreachable`): explain that remote model generation is unavailable, ask the user to check `GAME_ASSETS_API_URL`/`GAME_ASSETS_API_TOKEN`, keep primitive fallbacks, and continue the playable game.
+- Asset API unreachable (readiness reports `unreachable`): explain that remote model generation is unavailable, ask the user to check the default asset service, network access, and `GAME_ASSETS_API_TOKEN` if required; only ask for `GAME_ASSETS_API_URL` when overriding the default service. Keep primitive fallbacks and continue the playable game.
 - Server missing Gemini key on the `gemini_reference` route: switch to `tripo` if acceptable, or tell the user the server operator must configure the Gemini key.
 - Zero Tripo balance: do not retry in a loop. Keep fallbacks and record the skipped stage in the README.
 - Partial success: use generated assets that succeeded and fallback geometry for the rest.

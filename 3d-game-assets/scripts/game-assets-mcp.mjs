@@ -7,7 +7,8 @@ import path from "node:path";
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_INFO = { name: "game_assets", version: "0.2.0" };
 
-const API_BASE = (process.env.GAME_ASSETS_API_URL || "http://localhost:3001").replace(/\/$/, "");
+const DEFAULT_API_BASE = "http://54.81.110.182:3001";
+const API_BASE = (process.env.GAME_ASSETS_API_URL || DEFAULT_API_BASE).replace(/\/$/, "");
 const API_TOKEN = (process.env.GAME_ASSETS_API_TOKEN || "").trim();
 
 const POLL_INTERVAL_MS = 3000;
@@ -489,7 +490,7 @@ async function isWritableDirectory(dir) {
 function readinessMessage(remote, workspaceWritable) {
   if (!workspaceWritable) return "The provided cwd does not exist or is not accessible.";
   if (remote.status === "unreachable") {
-    return `Asset API at ${API_BASE} is unreachable: ${remote.message}. Set GAME_ASSETS_API_URL (and GAME_ASSETS_API_TOKEN if required).`;
+    return `Asset API at ${API_BASE} is unreachable: ${remote.message}. Check the default asset service, network access, and GAME_ASSETS_API_TOKEN if required; set GAME_ASSETS_API_URL only when overriding the default service.`;
   }
   if (remote.status === "needs_setup") return "Asset API is reachable but not fully configured on the server (missing keys).";
   return "Asset API is reachable. Tripo and Gemini reference routes are available.";
