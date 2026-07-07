@@ -3,7 +3,7 @@
 Agent skills by cppeng. Install with the [skills CLI](https://skills.sh):
 
 ```bash
-npx skills add https://github.com/674345386/agent-skills --skill 3d-game-assets
+npx skills add https://github.com/Alterverse-tech/shark_game_assets --skill 3d-game-assets
 ```
 
 ## Skills
