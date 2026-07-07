@@ -1,4 +1,4 @@
-# agent-skills
+# shark-game-assets skill/plugin
 
 Agent skills by cppeng. Install with the [skills CLI](https://skills.sh):
 
