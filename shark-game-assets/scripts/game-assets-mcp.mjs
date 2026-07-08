@@ -525,16 +525,13 @@ function buildLocalManifest(job, downloaded) {
       .map((entry) => {
         const local = byId.get(entry.id);
         if (!local || !local.localUrl) return undefined;
+        const localClips = (local.animationClips || entry.animationClips || [])
+          .map((clip) => (clip.localUrl ? { name: clip.name, preset: clip.preset, url: clip.localUrl, format: "glb" } : undefined))
+          .filter(Boolean);
         return {
           ...entry,
           url: local.localUrl,
-          ...(Array.isArray(entry.animationClips) || Array.isArray(local.animationClips)
-            ? {
-                animationClips: (local.animationClips || entry.animationClips || [])
-                  .map((clip) => (clip.localUrl ? { name: clip.name, preset: clip.preset, url: clip.localUrl, format: "glb" } : undefined))
-                  .filter(Boolean)
-              }
-            : {})
+          ...(localClips.length ? { animationClips: localClips } : {})
         };
       })
       .filter(Boolean)
@@ -571,7 +568,7 @@ async function upsertRigClipManifest(manifestFile, entry) {
     ...(entry.animations || previous.animations ? { animations: entry.animations || previous.animations } : {}),
     ...(entry.animationSource || previous.animationSource ? { animationSource: entry.animationSource || previous.animationSource } : {}),
     ...(entry.rigError || previous.rigError ? { rigError: entry.rigError || previous.rigError } : {}),
-    animationClips: nextClips
+    ...(nextClips.length ? { animationClips: nextClips } : {})
   };
   if (index >= 0) assets[index] = nextEntry;
   else assets.push(nextEntry);
