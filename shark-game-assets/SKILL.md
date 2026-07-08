@@ -91,10 +91,21 @@ Example `--params` JSON:
 
 - Normalize every loaded GLB with `THREE.Box3().setFromObject()`: scale to target size, center horizontally, place the bottom at `y = 0`, and apply a stable facing offset.
 - Separate visuals from gameplay hitboxes. Collision should use stable gameplay dimensions, not raw model bounds or mesh origins.
-- If `manifest.assets` contains `rigged`, `rigType`, or `animations`, inspect the loaded `gltf.animations` before claiming native animation exists.
+- If `manifest.assets` contains `rigged`, `rigType`, `animationClips`, or `animations`, inspect the loaded `gltf.animations` before claiming native animation exists.
 - When native clips exist, create a `THREE.AnimationMixer`, map clips by case-insensitive substrings such as `idle`, `walk`, `run`, and `jump`, and call `mixer.update(delta)` every frame.
 - If no native clips exist, use whole-group bob/tilt/rotation or explicitly labeled procedural clips as fallback animation.
 - Add a short `README.md` section named `3D Asset Pipeline` or `3D 素材流水线` describing which assets were generated, which route was used, and what runtime animation source is used.
+
+## Existing GLB animation clip generation
+
+When animating an existing GLB through Tripo, use the stable single-clip pipeline:
+
+- Run `animate_rig` / `/animations/rig` once. For biped humanoids use model `v1.0-20240301`.
+- Run `animate_retarget` / `/animations/retarget` once per preset, using the same rig task. Every retarget request must have exactly one animation, such as `["preset:biped:walk"]`.
+- Do not call retarget with multiple presets such as `animations: ["preset:biped:idle", "preset:biped:walk"]`. Tripo batch retarget can corrupt the second and later clips, commonly showing arm crossing or pose collapse even though GLB supports multiple clips.
+- Required default biped clips are `preset:biped:idle` and `preset:biped:walk`. Optional biped clips are `preset:biped:run` and `preset:biped:jump`; generate them only when explicitly requested.
+- Keep each retargeted clip as a separate GLB and record it as an `animationClips` entry. Do not claim the main rigged GLB contains multiple clips unless runtime inspection confirms `gltf.animations.length > 0`.
+- Validate each clip separately with FK or visual QA before using it in a game.
 
 ## Failure handling
 

@@ -38,7 +38,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "generate_game_assets_batch",
     description:
-      "Generate 1-4 game-ready GLB assets for a 3D game, cache them into cwd/public/generated-assets, and write cwd/asset_manifest.json. This may consume Tripo and optionally Gemini credits.",
+      "Generate 1-4 game-ready GLB assets for a 3D game, cache them into cwd/public/generated-assets, and write cwd/asset_manifest.json. This may consume Tripo and optionally Gemini credits. If the server rigs animation clips, each Tripo retarget preset is generated as a separate GLB; do not request batched retarget presets.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -153,7 +153,7 @@ async function handleMessage(message) {
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
       instructions:
-        "Use this server only for key GLB assets in 3D games. Pass cwd as the current project directory. Generate 1-3 essential assets, reuse asset_manifest.json by default, and keep primitive fallbacks."
+        "Use this server only for key GLB assets in 3D games. Pass cwd as the current project directory. Generate 1-3 essential assets, reuse asset_manifest.json by default, and keep primitive fallbacks. For existing-GLB animation, Tripo retarget must be one preset per request; default biped clips are idle and walk, optional clips are run and jump, and each clip should be recorded as a separate animationClips GLB."
     });
     return;
   }
@@ -303,8 +303,9 @@ async function downloadJobAssets(job, output) {
   await mkdir(output.assetRootDir, { recursive: true });
   const downloaded = [];
   for (const asset of assets) {
+    const animationClips = await downloadAnimationClips(asset, output);
     if (!asset.downloadUrl) {
-      downloaded.push({ ...asset, localUrl: undefined });
+      downloaded.push({ ...asset, localUrl: undefined, animationClips });
       continue;
     }
     const fileName = `${asset.id}.glb`;
@@ -312,9 +313,31 @@ async function downloadJobAssets(job, output) {
     try {
       const bytes = await apiDownload(asset.downloadUrl);
       await writeFile(filePath, bytes);
-      downloaded.push({ ...asset, localUrl: `${output.publicPath}/${fileName}`, localFile: filePath, bytes: bytes.byteLength });
+      downloaded.push({ ...asset, localUrl: `${output.publicPath}/${fileName}`, localFile: filePath, bytes: bytes.byteLength, animationClips });
     } catch (error) {
-      downloaded.push({ ...asset, localUrl: undefined, error: `Download failed: ${error instanceof Error ? error.message : String(error)}` });
+      downloaded.push({ ...asset, localUrl: undefined, animationClips, error: `Download failed: ${error instanceof Error ? error.message : String(error)}` });
+    }
+  }
+  return downloaded;
+}
+
+async function downloadAnimationClips(asset, output) {
+  const clips = Array.isArray(asset.animationClips) ? asset.animationClips : [];
+  const downloaded = [];
+  for (const clip of clips) {
+    const name = safeId(clip.name || clip.preset || "clip") || "clip";
+    const fileName = `${asset.id}-${name}.glb`;
+    const filePath = path.join(output.assetRootDir, fileName);
+    if (!clip.downloadUrl) {
+      downloaded.push({ ...clip, localUrl: undefined });
+      continue;
+    }
+    try {
+      const bytes = await apiDownload(clip.downloadUrl);
+      await writeFile(filePath, bytes);
+      downloaded.push({ ...clip, localUrl: `${output.publicPath}/${fileName}`, localFile: filePath, bytes: bytes.byteLength });
+    } catch (error) {
+      downloaded.push({ ...clip, localUrl: undefined, error: `Download failed: ${error instanceof Error ? error.message : String(error)}` });
     }
   }
   return downloaded;
@@ -330,7 +353,17 @@ function buildLocalManifest(job, downloaded) {
       .map((entry) => {
         const local = byId.get(entry.id);
         if (!local || !local.localUrl) return undefined;
-        return { ...entry, url: local.localUrl };
+        return {
+          ...entry,
+          url: local.localUrl,
+          ...(Array.isArray(entry.animationClips) || Array.isArray(local.animationClips)
+            ? {
+                animationClips: (local.animationClips || entry.animationClips || [])
+                  .map((clip) => (clip.localUrl ? { name: clip.name, preset: clip.preset, url: clip.localUrl, format: "glb" } : undefined))
+                  .filter(Boolean)
+              }
+            : {})
+        };
       })
       .filter(Boolean)
   };
