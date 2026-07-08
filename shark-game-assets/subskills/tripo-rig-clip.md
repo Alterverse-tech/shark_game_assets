@@ -32,7 +32,7 @@ node <skill-dir>/scripts/game-assets-mcp.mjs animate --cwd "$(pwd)" --params '{
   "assetId": "eleanor-blackwood",
   "assetName": "Eleanor Blackwood",
   "role": "player",
-  "spec": "mixamo",
+  "spec": "tripo",
   "modelVersion": "v1.0-20240301"
 }'
 ```

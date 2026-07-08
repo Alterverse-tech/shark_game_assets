@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER_INFO = { name: "game_assets", version: "0.3.0" };
+const SERVER_INFO = { name: "game_assets", version: "0.3.1" };
 
 const DEFAULT_API_BASE = "http://54.81.110.182:3001";
 const API_BASE = (process.env.GAME_ASSETS_API_URL || DEFAULT_API_BASE).replace(/\/$/, "");
@@ -127,7 +127,7 @@ const TOOL_DEFINITIONS = [
         spec: {
           type: "string",
           enum: ["tripo", "mixamo"],
-          description: "Rig naming spec. Defaults to mixamo."
+          description: "Rig naming spec. Defaults to tripo for Tripo preset retarget stability; use mixamo only when explicitly needed."
         },
         modelVersion: {
           type: "string",
@@ -374,7 +374,7 @@ async function generateRigClips(args) {
   for (const plan of callPlans) {
     const body = {
       originalModelTaskId,
-      spec: args.spec === "tripo" || args.spec === "mixamo" ? args.spec : "mixamo",
+      spec: args.spec === "tripo" || args.spec === "mixamo" ? args.spec : "tripo",
       modelVersion: typeof args.modelVersion === "string" && args.modelVersion.trim() ? args.modelVersion.trim() : DEFAULT_RIG_MODEL_VERSION,
       ...(plan.animations ? { animations: plan.animations } : {})
     };
