@@ -5,7 +5,7 @@ description: Animate an existing Tripo GLB/model task by running Tripo rig plus 
 
 # Tripo Rig Clip
 
-Use this subskill when the user already has a GLB or Tripo model task and asks for rigging, auto-rigging, animation clips, retargeting, idle, walk, run, jump, or fixing Tripo multi-animation retarget issues.
+Use this subskill when the user already has a GLB or Tripo model task and asks for rigging, auto-rigging, animation clips, retargeting, idle, walk, run, jump, or fixing Tripo multi-animation retarget issues. Also use it as the required continuation of the `gemini_reference` route for generated `character` or `creature` assets.
 
 ## Non-negotiable rules
 
@@ -18,6 +18,8 @@ Use this subskill when the user already has a GLB or Tripo model task and asks f
 - Optional biped clips are only `preset:biped:run` and `preset:biped:jump`, and only when the user explicitly requests them.
 
 ## Preferred client workflow
+
+When the parent `generate` command uses `route: "gemini_reference"` for `assetKind: "character"` or `"creature"`, the remote asset API runs this rig/clip flow automatically after Tripo image-to-model succeeds. In that case, do not call `animate` again unless the user asks to regenerate a specific optional clip or repair a bad clip.
 
 Use the parent skill's bundled client. It calls the asset API and splits explicit multi-preset requests into one `/api/asset-jobs/animate` call per preset.
 

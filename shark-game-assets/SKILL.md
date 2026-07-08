@@ -19,7 +19,7 @@ Use this skill when a 3D game needs concrete, recognizable GLB assets rather tha
 
 Use `tripo` for the fast route: direct text prompt to Tripo3D text-to-model. This is best for generic props, enemies, collectibles, vehicles, obstacles, and fast iteration.
 
-Use `gemini_reference` when visual control matters: Gemini first creates a pure-white-background reference image, then Tripo image-to-model creates the GLB. Prefer this route when the user mentions Gemini, Nano Banana, T-pose, white background, reference image, image-to-model, character sheet, style consistency, or when a key character's silhouette must be controlled.
+Use `gemini_reference` when visual control matters: Gemini first creates a pure-white-background reference image, then Tripo image-to-model creates the GLB. For `assetKind: "character"` or `"creature"`, this route must continue into the `tripo-rig-clip` flow so the final manifest contains a rigged main GLB plus default `idle` and `walk` `animationClips`. Prefer this route when the user mentions Gemini, Nano Banana, T-pose, white background, reference image, image-to-model, character sheet, style consistency, or when a key character's silhouette must be controlled.
 
 Use `auto` only when you are comfortable with the server choosing from the prompt. If in doubt, choose the route yourself and pass it explicitly.
 
@@ -55,6 +55,7 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
 
    - `route`: `tripo`, `gemini_reference`, or `auto`.
    - `assets`: 1-3 objects with stable kebab-case `id`, `role`, `name`, `prompt`, and optionally `assetKind`.
+   - On `gemini_reference`, character/creature assets are automatically rigged and retargeted after GLB generation; expect `animationClips` in the manifest.
    - `force`: only when the user explicitly asked to regenerate assets.
    - The command blocks while polling the remote job (typically 1-3 minutes per batch) and prints a JSON result; exit code 1 means the batch failed.
 4. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
@@ -98,7 +99,7 @@ Example `--params` JSON:
 
 ## Existing GLB animation clip generation
 
-Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the user asks to animate, rig, auto-rig, retarget, or add idle/walk/run/jump clips to an existing GLB or Tripo task. Load that file before doing existing-GLB animation work.
+Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the user asks to animate, rig, auto-rig, retarget, or add idle/walk/run/jump clips to an existing GLB or Tripo task. Also treat it as the required continuation of the `gemini_reference` route for character/creature assets. Load that file before doing existing-GLB animation work or explaining the Gemini character pipeline.
 
 ## Failure handling
 

@@ -41,7 +41,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "generate_game_assets_batch",
     description:
-      "Generate 1-4 game-ready GLB assets for a 3D game, cache them into cwd/public/generated-assets, and write cwd/asset_manifest.json. This may consume Tripo and optionally Gemini credits. If the server rigs animation clips, each Tripo retarget preset is generated as a separate GLB; do not request batched retarget presets.",
+      "Generate 1-4 game-ready GLB assets for a 3D game, cache them into cwd/public/generated-assets, and write cwd/asset_manifest.json. This may consume Tripo and optionally Gemini credits. On the gemini_reference route, character/creature assets are automatically rigged and retargeted into separate animationClips GLBs after image-to-model. If the server rigs animation clips, each Tripo retarget preset is generated as a separate GLB; do not request batched retarget presets.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -206,7 +206,7 @@ async function handleMessage(message) {
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
       instructions:
-        "Use this server only for key GLB assets in 3D games. Pass cwd as the current project directory. Generate 1-3 essential assets, reuse asset_manifest.json by default, and keep primitive fallbacks. For existing-GLB animation, Tripo retarget must be one preset per request; default biped clips are idle and walk, optional clips are run and jump, and each clip should be recorded as a separate animationClips GLB."
+        "Use this server only for key GLB assets in 3D games. Pass cwd as the current project directory. Generate 1-3 essential assets, reuse asset_manifest.json by default, and keep primitive fallbacks. The gemini_reference route automatically rigs character/creature GLBs and returns separate animationClips. For existing-GLB animation, Tripo retarget must be one preset per request; default biped clips are idle and walk, optional clips are run and jump, and each clip should be recorded as a separate animationClips GLB."
     });
     return;
   }
