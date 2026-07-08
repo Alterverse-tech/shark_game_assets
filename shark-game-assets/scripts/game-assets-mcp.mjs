@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER_INFO = { name: "game_assets", version: "0.2.0" };
+const SERVER_INFO = { name: "game_assets", version: "0.3.0" };
 
 const DEFAULT_API_BASE = "http://54.81.110.182:3001";
 const API_BASE = (process.env.GAME_ASSETS_API_URL || DEFAULT_API_BASE).replace(/\/$/, "");
@@ -18,6 +18,9 @@ const HTTP_TIMEOUT_MS = 60000;
 const VALID_ROLES = ["player", "collectible", "hazard", "prop", "vehicle", "environment"];
 const VALID_KINDS = ["character", "creature", "prop", "vehicle", "environment"];
 const ROUTES = ["auto", "tripo", "gemini_reference"];
+const BIPED_RIG_CLIPS = ["preset:biped:idle", "preset:biped:walk", "preset:biped:run", "preset:biped:jump"];
+const DEFAULT_BIPED_RIG_CLIPS = ["preset:biped:idle", "preset:biped:walk"];
+const DEFAULT_RIG_MODEL_VERSION = "v1.0-20240301";
 
 const TOOL_DEFINITIONS = [
   {
@@ -85,14 +88,63 @@ const TOOL_DEFINITIONS = [
       },
       required: ["cwd", "gamePrompt", "assets"]
     }
+  },
+  {
+    name: "generate_tripo_rig_clips",
+    description:
+      "Animate an existing Tripo GLB task into rigged biped GLB clips. Uses Tripo rig v1.0-20240301 by default and never sends multiple retarget presets in one request. Defaults to idle and walk; run and jump require explicit selection.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        cwd: {
+          type: "string",
+          description: "Absolute path to the current project directory. Generated GLBs and asset_manifest.json are written here."
+        },
+        originalModelTaskId: {
+          type: "string",
+          description: "Tripo task id of the existing source GLB/model to rig and retarget."
+        },
+        assetId: {
+          type: "string",
+          description: "Stable kebab-case id for the manifest entry and local filenames."
+        },
+        assetName: {
+          type: "string",
+          description: "Human-readable manifest name."
+        },
+        role: {
+          type: "string",
+          enum: VALID_ROLES,
+          description: "Manifest role. Defaults to player."
+        },
+        animations: {
+          type: "array",
+          items: { type: "string", enum: BIPED_RIG_CLIPS },
+          description:
+            "Optional biped presets. Omit to generate required idle and walk. If multiple presets are provided, this client splits them into separate /animate calls."
+        },
+        spec: {
+          type: "string",
+          enum: ["tripo", "mixamo"],
+          description: "Rig naming spec. Defaults to mixamo."
+        },
+        modelVersion: {
+          type: "string",
+          description: "Tripo rig model version. Defaults to v1.0-20240301 for biped compatibility."
+        }
+      },
+      required: ["cwd", "originalModelTaskId", "assetId"]
+    }
   }
 ];
 
 // CLI mode: `node game-assets-mcp.mjs readiness --cwd <dir>` or
-// `node game-assets-mcp.mjs generate --cwd <dir> --params '<json>'`.
+// `node game-assets-mcp.mjs generate --cwd <dir> --params '<json>'` or
+// `node game-assets-mcp.mjs animate --cwd <dir> --params '<json>'`.
 // Lets skill-only installs (npx skills add) drive the client via Bash without MCP registration.
 const cliCommand = process.argv[2];
-if (cliCommand === "readiness" || cliCommand === "generate") {
+if (cliCommand === "readiness" || cliCommand === "generate" || cliCommand === "animate") {
   runCli(cliCommand, process.argv.slice(3))
     .then((result) => {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -119,6 +171,7 @@ async function runCli(command, argv) {
   } catch {
     throw new Error("--params must be a JSON object, e.g. --params '{\"gamePrompt\":\"...\",\"assets\":[...]}'");
   }
+  if (command === "animate") return generateRigClips({ ...params, cwd: flags.cwd ?? params.cwd });
   return generateAssets({ ...params, cwd: flags.cwd ?? params.cwd });
 }
 
@@ -184,6 +237,11 @@ async function handleToolCall(message) {
   }
   if (name === "generate_game_assets_batch") {
     const result = await generateAssets(args);
+    writeToolResult(message.id, result, result.status === "failed");
+    return;
+  }
+  if (name === "generate_tripo_rig_clips") {
+    const result = await generateRigClips(args);
     writeToolResult(message.id, result, result.status === "failed");
     return;
   }
@@ -285,6 +343,114 @@ async function generateAssets(args) {
   };
 }
 
+async function generateRigClips(args) {
+  const workspace = resolveWorkspace(args.cwd);
+  const output = outputPaths(workspace);
+  const originalModelTaskId = typeof args.originalModelTaskId === "string" ? args.originalModelTaskId.trim() : "";
+  if (!/^[a-zA-Z0-9_-]{8,}$/.test(originalModelTaskId)) {
+    return { status: "failed", workspace, output, errors: ["originalModelTaskId is required and must be a Tripo task id."] };
+  }
+
+  const assetId = safeId(args.assetId || originalModelTaskId);
+  if (!assetId) return { status: "failed", workspace, output, errors: ["assetId is required."] };
+
+  const role = VALID_ROLES.includes(args.role) ? args.role : "player";
+  const assetName = typeof args.assetName === "string" && args.assetName.trim() ? args.assetName.trim() : assetId;
+  const requestedAnimations = normalizeRigClipAnimations(args.animations);
+  if (requestedAnimations === false) {
+    return {
+      status: "failed",
+      workspace,
+      output,
+      errors: [`animations must contain only supported biped presets: ${BIPED_RIG_CLIPS.join(", ")}`]
+    };
+  }
+
+  const callPlans = requestedAnimations
+    ? requestedAnimations.map((preset) => ({ animations: [preset], preset }))
+    : [{ animations: undefined, preset: DEFAULT_BIPED_RIG_CLIPS.join(",") }];
+
+  const responses = [];
+  for (const plan of callPlans) {
+    const body = {
+      originalModelTaskId,
+      spec: args.spec === "tripo" || args.spec === "mixamo" ? args.spec : "mixamo",
+      modelVersion: typeof args.modelVersion === "string" && args.modelVersion.trim() ? args.modelVersion.trim() : DEFAULT_RIG_MODEL_VERSION,
+      ...(plan.animations ? { animations: plan.animations } : {})
+    };
+    responses.push(await apiRequest("POST", "/api/asset-jobs/animate", body));
+  }
+
+  await mkdir(output.assetRootDir, { recursive: true });
+  const baseResponse = responses.find((result) => result.downloadUrl || result.modelUrl) || responses[0] || {};
+  const baseFileName = `${assetId}-rigged.glb`;
+  let baseLocalUrl;
+  let baseLocalFile;
+  if (baseResponse.downloadUrl) {
+    baseLocalFile = path.join(output.assetRootDir, baseFileName);
+    const bytes = await apiDownload(baseResponse.downloadUrl);
+    await writeFile(baseLocalFile, bytes);
+    baseLocalUrl = `${output.publicPath}/${baseFileName}`;
+  }
+
+  const clipMap = new Map();
+  for (const response of responses) {
+    const clips = Array.isArray(response.animationClips) ? response.animationClips : [];
+    for (const clip of clips) {
+      if (!clip.downloadUrl) continue;
+      const name = safeId(clip.name || presetName(clip.preset) || "clip") || "clip";
+      const key = clip.preset || name;
+      const fileName = `${assetId}-${name}.glb`;
+      const filePath = path.join(output.assetRootDir, fileName);
+      const bytes = await apiDownload(clip.downloadUrl);
+      await writeFile(filePath, bytes);
+      clipMap.set(key, {
+        name,
+        preset: clip.preset,
+        taskId: clip.taskId,
+        sourceUrl: clip.modelUrl,
+        url: `${output.publicPath}/${fileName}`,
+        localFile: filePath,
+        format: "glb",
+        bytes: bytes.byteLength
+      });
+    }
+  }
+
+  const manifest = await upsertRigClipManifest(output.manifestFile, {
+    id: assetId,
+    role,
+    name: assetName,
+    url: baseLocalUrl,
+    format: "glb",
+    rigged: baseResponse.status === "rigged" || Boolean(baseResponse.rigType),
+    rigType: baseResponse.rigType,
+    originalModelTaskId,
+    source: "tripo_rig_clip",
+    animationClips: [...clipMap.values()].map(({ localFile, bytes, ...clip }) => clip)
+  });
+
+  const errors = responses.flatMap((response) => (response.retargetError ? [response.retargetError] : response.reason ? [response.reason] : []));
+  return {
+    status: errors.length > 0 && clipMap.size === 0 ? "failed" : "success",
+    workspace,
+    output,
+    originalModelTaskId,
+    asset: {
+      id: assetId,
+      role,
+      name: assetName,
+      localUrl: baseLocalUrl,
+      localFile: baseLocalFile,
+      rigType: baseResponse.rigType,
+      animationClips: [...clipMap.values()]
+    },
+    manifest,
+    errors,
+    message: `Generated ${clipMap.size} Tripo rig clip GLB(s) for ${assetId}. Manifest: ${output.manifestFile}`
+  };
+}
+
 async function pollJobUntilDone(jobId, output) {
   const deadline = Date.now() + GENERATE_TIMEOUT_MS;
   for (;;) {
@@ -383,6 +549,42 @@ async function readExistingManifest(manifestFile) {
   } catch {
     return undefined;
   }
+}
+
+async function upsertRigClipManifest(manifestFile, entry) {
+  const existing = await readExistingManifest(manifestFile);
+  const assets = Array.isArray(existing?.assets) ? existing.assets.slice() : [];
+  const index = assets.findIndex((asset) => asset && asset.id === entry.id);
+  const previous = index >= 0 ? assets[index] : {};
+  const previousClips = Array.isArray(previous.animationClips) ? previous.animationClips : [];
+  const nextClips = mergeClipEntries(previousClips, entry.animationClips || []);
+  const nextEntry = {
+    ...previous,
+    ...entry,
+    url: entry.url || previous.url,
+    animationClips: nextClips
+  };
+  if (index >= 0) assets[index] = nextEntry;
+  else assets.push(nextEntry);
+
+  const manifest = {
+    ...(existing || { version: 1, gamePrompt: "", usage: "" }),
+    version: existing?.version || 1,
+    assets,
+    usage:
+      existing?.usage ||
+      "Load asset url with Three.js GLTFLoader. Load each animationClips url as a separate GLB and copy compatible AnimationClips onto the same rig."
+  };
+  await mkdir(path.dirname(manifestFile), { recursive: true });
+  await writeFile(manifestFile, JSON.stringify(manifest, null, 2));
+  return manifest;
+}
+
+function mergeClipEntries(previousClips, newClips) {
+  const byKey = new Map();
+  for (const clip of previousClips) byKey.set(clip.preset || clip.name, clip);
+  for (const clip of newClips) byKey.set(clip.preset || clip.name, clip);
+  return [...byKey.values()];
 }
 
 function hasLoadableAsset(job) {
@@ -540,6 +742,20 @@ function safeId(value) {
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
+}
+
+function normalizeRigClipAnimations(value) {
+  if (value === undefined) return undefined;
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  const animations = raw.map((animation) => String(animation).trim()).filter(Boolean);
+  if (animations.length === 0) return false;
+  if (animations.some((animation) => !BIPED_RIG_CLIPS.includes(animation))) return false;
+  return [...new Set(animations)];
+}
+
+function presetName(preset) {
+  if (typeof preset !== "string") return "";
+  return preset.split(":").pop() || "";
 }
 
 function sleep(ms) {

@@ -34,7 +34,7 @@ If the token is missing and the service requires authentication, ask the user to
 
 ## Tool workflow
 
-If MCP tools named `mcp__game_assets__*` are available in your session, prefer them. Otherwise run the bundled client via Bash. Both expose the same two operations.
+If MCP tools named `mcp__game_assets__*` are available in your session, prefer them. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations.
 
 1. Run `pwd` if you do not already know the current workspace path.
 2. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
@@ -98,14 +98,7 @@ Example `--params` JSON:
 
 ## Existing GLB animation clip generation
 
-When animating an existing GLB through Tripo, use the stable single-clip pipeline:
-
-- Run `animate_rig` / `/animations/rig` once. For biped humanoids use model `v1.0-20240301`.
-- Run `animate_retarget` / `/animations/retarget` once per preset, using the same rig task. Every retarget request must have exactly one animation, such as `["preset:biped:walk"]`.
-- Do not call retarget with multiple presets such as `animations: ["preset:biped:idle", "preset:biped:walk"]`. Tripo batch retarget can corrupt the second and later clips, commonly showing arm crossing or pose collapse even though GLB supports multiple clips.
-- Required default biped clips are `preset:biped:idle` and `preset:biped:walk`. Optional biped clips are `preset:biped:run` and `preset:biped:jump`; generate them only when explicitly requested.
-- Keep each retargeted clip as a separate GLB and record it as an `animationClips` entry. Do not claim the main rigged GLB contains multiple clips unless runtime inspection confirms `gltf.animations.length > 0`.
-- Validate each clip separately with FK or visual QA before using it in a game.
+Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the user asks to animate, rig, auto-rig, retarget, or add idle/walk/run/jump clips to an existing GLB or Tripo task. Load that file before doing existing-GLB animation work.
 
 ## Failure handling
 
