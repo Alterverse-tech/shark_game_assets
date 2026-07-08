@@ -41,7 +41,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "generate_game_assets_batch",
     description:
-      "Generate 1-4 game-ready GLB assets for a 3D game, cache them into cwd/public/generated-assets, and write cwd/asset_manifest.json. This may consume Tripo and optionally Gemini credits. On the gemini_reference route, character/creature assets are automatically rigged and retargeted into separate animationClips GLBs after image-to-model. If the server rigs animation clips, each Tripo retarget preset is generated as a separate GLB; do not request batched retarget presets.",
+      "Generate 1-4 game-ready GLB assets for a 3D game, cache them into cwd/public/generated-assets, and write cwd/asset_manifest.json. This may consume Tripo and optionally Gemini credits. On the gemini_reference route, character/creature assets are automatically rigged after image-to-model. Retarget success returns separate animationClips GLBs; retarget failure can return main-GLB fallback animations with animationSource=procedural_native_clips. If the server rigs animation clips, each Tripo retarget preset is generated as a separate GLB; do not request batched retarget presets.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -92,7 +92,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "generate_tripo_rig_clips",
     description:
-      "Animate an existing Tripo GLB task into rigged biped GLB clips. Uses Tripo rig v1.0-20240301 by default and never sends multiple retarget presets in one request. Defaults to idle and walk; run and jump require explicit selection.",
+      "Animate an existing Tripo GLB task into rigged biped GLB clips. Uses Tripo rig v1.0-20240301 by default and never sends multiple retarget presets in one request. Defaults to idle and walk; run and jump require explicit selection. If retarget fails after rigging, the API may embed procedural Idle/Walk clips in the main GLB.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -206,7 +206,7 @@ async function handleMessage(message) {
       capabilities: { tools: {} },
       serverInfo: SERVER_INFO,
       instructions:
-        "Use this server only for key GLB assets in 3D games. Pass cwd as the current project directory. Generate 1-3 essential assets, reuse asset_manifest.json by default, and keep primitive fallbacks. The gemini_reference route automatically rigs character/creature GLBs and returns separate animationClips. For existing-GLB animation, Tripo retarget must be one preset per request; default biped clips are idle and walk, optional clips are run and jump, and each clip should be recorded as a separate animationClips GLB."
+        "Use this server only for key GLB assets in 3D games. Pass cwd as the current project directory. Generate 1-3 essential assets, reuse asset_manifest.json by default, and keep primitive fallbacks. The gemini_reference route automatically rigs character/creature GLBs; retarget success returns separate animationClips and retarget failure may return main-GLB procedural_native_clips. For existing-GLB animation, Tripo retarget must be one preset per request; default biped clips are idle and walk, optional clips are run and jump, and each successful retarget clip should be recorded as a separate animationClips GLB."
     });
     return;
   }
@@ -427,12 +427,16 @@ async function generateRigClips(args) {
     rigType: baseResponse.rigType,
     originalModelTaskId,
     source: "tripo_rig_clip",
+    ...(Array.isArray(baseResponse.animations) && baseResponse.animations.length ? { animations: baseResponse.animations } : {}),
+    ...(baseResponse.animationSource ? { animationSource: baseResponse.animationSource } : {}),
+    ...(baseResponse.retargetError ? { rigError: baseResponse.retargetError } : {}),
     animationClips: [...clipMap.values()].map(({ localFile, bytes, ...clip }) => clip)
   });
 
   const errors = responses.flatMap((response) => (response.retargetError ? [response.retargetError] : response.reason ? [response.reason] : []));
+  const hasProceduralFallback = Array.isArray(baseResponse.animations) && baseResponse.animations.length > 0 && baseResponse.animationSource === "procedural_native_clips";
   return {
-    status: errors.length > 0 && clipMap.size === 0 ? "failed" : "success",
+    status: errors.length > 0 && clipMap.size === 0 && !hasProceduralFallback ? "failed" : "success",
     workspace,
     output,
     originalModelTaskId,
@@ -443,6 +447,8 @@ async function generateRigClips(args) {
       localUrl: baseLocalUrl,
       localFile: baseLocalFile,
       rigType: baseResponse.rigType,
+      ...(Array.isArray(baseResponse.animations) && baseResponse.animations.length ? { animations: baseResponse.animations } : {}),
+      ...(baseResponse.animationSource ? { animationSource: baseResponse.animationSource } : {}),
       animationClips: [...clipMap.values()]
     },
     manifest,
@@ -562,6 +568,9 @@ async function upsertRigClipManifest(manifestFile, entry) {
     ...previous,
     ...entry,
     url: entry.url || previous.url,
+    ...(entry.animations || previous.animations ? { animations: entry.animations || previous.animations } : {}),
+    ...(entry.animationSource || previous.animationSource ? { animationSource: entry.animationSource || previous.animationSource } : {}),
+    ...(entry.rigError || previous.rigError ? { rigError: entry.rigError || previous.rigError } : {}),
     animationClips: nextClips
   };
   if (index >= 0) assets[index] = nextEntry;
@@ -573,7 +582,7 @@ async function upsertRigClipManifest(manifestFile, entry) {
     assets,
     usage:
       existing?.usage ||
-      "Load asset url with Three.js GLTFLoader. Load each animationClips url as a separate GLB and copy compatible AnimationClips onto the same rig."
+      "Load asset url with Three.js GLTFLoader. Load each animationClips url as a separate GLB and copy compatible AnimationClips onto the same rig. If animationSource is procedural_native_clips, play the main GLB's embedded animations directly."
   };
   await mkdir(path.dirname(manifestFile), { recursive: true });
   await writeFile(manifestFile, JSON.stringify(manifest, null, 2));

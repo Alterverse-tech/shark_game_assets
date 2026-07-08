@@ -19,7 +19,7 @@ Use this skill when a 3D game needs concrete, recognizable GLB assets rather tha
 
 Use `tripo` for the fast route: direct text prompt to Tripo3D text-to-model. This is best for generic props, enemies, collectibles, vehicles, obstacles, and fast iteration.
 
-Use `gemini_reference` when visual control matters: Gemini first creates a pure-white-background reference image, then Tripo image-to-model creates the GLB. For `assetKind: "character"` or `"creature"`, this route must continue into the `tripo-rig-clip` flow so the final manifest contains a rigged main GLB plus default `idle` and `walk` `animationClips`. Prefer this route when the user mentions Gemini, Nano Banana, T-pose, white background, reference image, image-to-model, character sheet, style consistency, or when a key character's silhouette must be controlled.
+Use `gemini_reference` when visual control matters: Gemini first creates a pure-white-background reference image, then Tripo image-to-model creates the GLB. For `assetKind: "character"` or `"creature"`, this route must continue into the `tripo-rig-clip` flow so the final manifest contains a rigged main GLB plus default `idle` and `walk` animation support. Prefer this route when the user mentions Gemini, Nano Banana, T-pose, white background, reference image, image-to-model, character sheet, style consistency, or when a key character's silhouette must be controlled.
 
 Use `auto` only when you are comfortable with the server choosing from the prompt. If in doubt, choose the route yourself and pass it explicitly.
 
@@ -55,7 +55,7 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
 
    - `route`: `tripo`, `gemini_reference`, or `auto`.
    - `assets`: 1-3 objects with stable kebab-case `id`, `role`, `name`, `prompt`, and optionally `assetKind`.
-   - On `gemini_reference`, character/creature assets are automatically rigged and retargeted after GLB generation; expect `animationClips` in the manifest.
+   - On `gemini_reference`, character/creature assets are automatically rigged after GLB generation. Prefer `animationClips` when present; if Tripo retarget failed, expect main-GLB fallback fields `animations: ["Idle", "Walk"]` and `animationSource: "procedural_native_clips"`.
    - `force`: only when the user explicitly asked to regenerate assets.
    - The command blocks while polling the remote job (typically 1-3 minutes per batch) and prints a JSON result; exit code 1 means the batch failed.
 4. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
@@ -92,7 +92,8 @@ Example `--params` JSON:
 
 - Normalize every loaded GLB with `THREE.Box3().setFromObject()`: scale to target size, center horizontally, place the bottom at `y = 0`, and apply a stable facing offset.
 - Separate visuals from gameplay hitboxes. Collision should use stable gameplay dimensions, not raw model bounds or mesh origins.
-- If `manifest.assets` contains `rigged`, `rigType`, `animationClips`, or `animations`, inspect the loaded `gltf.animations` before claiming native animation exists.
+- If `manifest.assets` contains `rigged`, `rigType`, `animationClips`, `animations`, or `animationSource`, inspect the loaded `gltf.animations` before claiming native animation exists.
+- If `animationSource` is `procedural_native_clips`, play the main GLB's embedded `Idle`/`Walk` clips directly and label them as procedural fallback clips, not Tripo retarget clips.
 - When native clips exist, create a `THREE.AnimationMixer`, map clips by case-insensitive substrings such as `idle`, `walk`, `run`, and `jump`, and call `mixer.update(delta)` every frame.
 - If no native clips exist, use whole-group bob/tilt/rotation or explicitly labeled procedural clips as fallback animation.
 - Add a short `README.md` section named `3D Asset Pipeline` or `3D 素材流水线` describing which assets were generated, which route was used, and what runtime animation source is used.

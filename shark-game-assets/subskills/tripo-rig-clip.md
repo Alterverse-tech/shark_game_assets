@@ -16,6 +16,7 @@ Use this subskill when the user already has a GLB or Tripo model task and asks f
 - Store each retargeted clip as its own GLB. Do not merge clips into one GLB in this flow.
 - Default required biped clips are `preset:biped:idle` and `preset:biped:walk`.
 - Optional biped clips are only `preset:biped:run` and `preset:biped:jump`, and only when the user explicitly requests them.
+- If Tripo retarget returns `failed` for required `idle`/`walk` after rigging succeeds, keep the rigged GLB and use the server's local procedural fallback: embed conservative native `Idle` and `Walk` clips into the main GLB. This is a fallback for broken Tripo retarget, not a replacement for successful retarget clips.
 
 ## Preferred client workflow
 
@@ -75,10 +76,34 @@ The client writes or updates `asset_manifest.json`:
 
 The main rigged model is for the character skin/skeleton. Each `animationClips[].url` is a separate GLB containing a retargeted clip for the compatible rig.
 
+If Tripo retarget fails after rigging, the output may instead be:
+
+```json
+{
+  "assets": [
+    {
+      "id": "eleanor-blackwood",
+      "role": "player",
+      "name": "Eleanor Blackwood",
+      "url": "/generated-assets/eleanor-blackwood/model-procedural-animations.glb",
+      "format": "glb",
+      "rigged": true,
+      "rigType": "biped",
+      "animations": ["Idle", "Walk"],
+      "animationSource": "procedural_native_clips",
+      "rigError": "preset:biped:idle: Tripo retarget task failed; preset:biped:walk: Tripo retarget task failed"
+    }
+  ]
+}
+```
+
+In this fallback shape, the main GLB itself contains the playable clips. Do not look for separate `animationClips` entries.
+
 ## Runtime wiring
 
 - Load the main rigged GLB with `GLTFLoader`.
 - Load each clip GLB separately, read its `gltf.animations`, and map clips by `name` / `preset` substrings such as `idle`, `walk`, `run`, `jump`.
+- If `animationSource` is `procedural_native_clips`, skip clip-GLB loading for that asset and use the main GLB's `gltf.animations` (`Idle`/`Walk`) directly.
 - Play clips on the main character with `THREE.AnimationMixer`.
 - Call `mixer.update(delta)` every frame.
 - If a clip GLB has no usable `gltf.animations`, keep the character playable and fall back to procedural bob/tilt only for that state.
@@ -86,6 +111,7 @@ The main rigged model is for the character skin/skeleton. Each `animationClips[]
 ## QA checklist
 
 - Confirm `asset_manifest.json` has separate `animationClips` entries, not one GLB claiming multiple generated clips.
+- Or, for retarget failure fallback, confirm `animationSource: "procedural_native_clips"` and main GLB `gltf.animations` contains `Idle` and `Walk`.
 - Inspect each generated GLB's `gltf.animations.length`.
 - Visually test idle and walk first. Test run/jump only if explicitly generated.
 - Watch for hand crossing, wrist collapse, shoulder over-rotation, foot sliding, and root motion drift.
