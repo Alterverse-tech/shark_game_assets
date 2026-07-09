@@ -24,6 +24,16 @@ Set `GAME_ASSETS_API_URL` only if you need to override the default service.
 
 Docs & downloads: http://54.81.110.182:3001/generated-assets/site/
 
+## Token And Remote Authorization
+
+`GAME_ASSETS_API_TOKEN` is required, but token presence is not the same as consent to send it to a remote host. Before the skill calls readiness, generate, or animate, the user must authorize using the token with the configured asset service, for example:
+
+```md
+I authorize using GAME_ASSETS_API_TOKEN with http://54.81.110.182:3001 for shark-game-assets readiness/generate/animate calls. Do not print the token.
+```
+
+If the token is missing, the remote call is not authorized, the call is blocked by policy, or the asset service is unreachable, the skill must pause and ask the user how to proceed. It must not silently replace requested GLB generation with local placeholder/procedural models and present that as completed asset generation.
+
 ## What This Skill Covers
 
 - Generates focused GLB assets for playable 3D games, not decorative filler.
