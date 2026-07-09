@@ -15,6 +15,7 @@ Use this skill when a 3D game needs concrete, recognizable GLB assets rather tha
 - For regeneration work with concrete characters or critical entity props, use the Gemini-Tripo branch (`route: "gemini_reference"`) for those key assets and keep that set to 1-5 models total. If the client/API batch cap is lower than the requested total, split into multiple generate calls.
 - For secondary static props that do not need strong visual control or rigged animation, use the faster Tripo branch (`route: "tripo"`) and keep that set to 3-10 models total. Do not include decorative filler just to reach the lower bound.
 - Use primitive Three.js geometry only as an interim placeholder while assets are pending and as the runtime fallback if a GLB fails to load.
+- If `GAME_ASSETS_API_TOKEN` is missing for a task that triggers this skill, stop the entire game-generation or asset-integration workflow and ask the user for the token. Do not downgrade to a playable procedural-geometry Three.js version, do not scaffold the game shell with primitive stand-ins, and do not continue implementation until the token is available.
 - Do not regenerate existing assets unless the user explicitly asks. If `asset_manifest.json` already has loadable assets, reuse it.
 - Avoid copyrighted characters, brand names, logos, and celebrity likenesses. Rewrite into original designs.
 
@@ -57,7 +58,7 @@ The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs
 - `GAME_ASSETS_API_URL` — optional override for the asset API base URL
 - `GAME_ASSETS_API_TOKEN` — required per-user access token
 
-`GAME_ASSETS_API_TOKEN` is mandatory. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the asset workflow and ask the user to provide `GAME_ASSETS_API_TOKEN`; do not continue with readiness checks, generation, animation, fallbacks-as-a-substitute, or speculative planning that assumes generation can proceed. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
+`GAME_ASSETS_API_TOKEN` is mandatory. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the entire game-generation or asset-integration workflow and ask the user to provide `GAME_ASSETS_API_TOKEN`; do not continue with readiness checks, generation, animation, fallbacks-as-a-substitute, procedural-model implementation, playable placeholder shells, or speculative planning that assumes generation can proceed. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
 
 ## Help / Trigger Examples
 
@@ -111,7 +112,7 @@ Natural-language trigger examples that do not explicitly name the skill:
 If MCP tools named `mcp__game_assets__*` are available in your session, prefer them. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations.
 
 1. Run `pwd` if you do not already know the current workspace path.
-2. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause the asset generation workflow until they provide it.
+2. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause the whole game-generation or asset-integration workflow until they provide it. Do not build a procedural Three.js fallback game or continue with primitive stand-ins while waiting.
 3. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
 
 ```bash
@@ -183,7 +184,7 @@ Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the 
 
 ## Failure handling
 
-- Missing `GAME_ASSETS_API_TOKEN`: stop before any readiness/generate/animate call and ask the user to provide `GAME_ASSETS_API_TOKEN`. Do not continue the asset generation workflow until the token is available.
+- Missing `GAME_ASSETS_API_TOKEN`: stop before any readiness/generate/animate call and ask the user to provide `GAME_ASSETS_API_TOKEN`. Do not continue the asset generation workflow, game shell implementation, or asset integration until the token is available. Do not downgrade to a playable Three.js procedural-model version, primitive-only prototype, or placeholder-based implementation.
 - Asset API unreachable (readiness reports `unreachable`): explain that remote model generation is unavailable, ask the user to check the default asset service, network access, and `GAME_ASSETS_API_TOKEN`; only ask for `GAME_ASSETS_API_URL` when overriding the default service. Keep primitive fallbacks only for the playable game shell, not as a substitute for a requested authenticated generation step.
 - Server missing Gemini key on the `gemini_reference` route: switch to `tripo` if acceptable, or tell the user the server operator must configure the Gemini key.
 - Zero Tripo balance: do not retry in a loop. Keep fallbacks and record the skipped stage in the README.
