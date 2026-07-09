@@ -5,7 +5,7 @@ Agent skills by cppeng for generating and wiring GLB assets into browser 3D game
 Install with the [skills CLI](https://skills.sh):
 
 ```bash
-npx skills add https://github.com/Alterverse-tech/shark_game_assets --skill shark-game-assets
+npx skills add https://github.com/Alterverse-tech/shark_game_assets --skill shark-game-assets -g
 ```
 
 ## Skills
