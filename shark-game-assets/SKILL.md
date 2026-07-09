@@ -55,22 +55,23 @@ Use `auto` only when you are comfortable with the server choosing from the promp
 The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks to the default remote asset API at `http://54.81.110.182:3001`.
 
 - `GAME_ASSETS_API_URL` — optional override for the asset API base URL
-- `GAME_ASSETS_API_TOKEN` — per-user access token
+- `GAME_ASSETS_API_TOKEN` — required per-user access token
 
-If the token is missing and the service requires authentication, ask the user to set `GAME_ASSETS_API_TOKEN` before generating. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
+`GAME_ASSETS_API_TOKEN` is mandatory. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the asset workflow and ask the user to provide `GAME_ASSETS_API_TOKEN`; do not continue with readiness checks, generation, animation, fallbacks-as-a-substitute, or speculative planning that assumes generation can proceed. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
 
 ## Tool workflow
 
 If MCP tools named `mcp__game_assets__*` are available in your session, prefer them. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations.
 
 1. Run `pwd` if you do not already know the current workspace path.
-2. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
+2. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause the asset generation workflow until they provide it.
+3. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
 
 ```bash
 node <skill-dir>/scripts/game-assets-mcp.mjs readiness --cwd "$(pwd)"
 ```
 
-3. Generate the selected asset set. By default generate 1-3 assets (batch max 4). For explicit game-regeneration requests, follow the quantity limits above: 1-5 Gemini-Tripo key entity models, and optionally 3-10 Tripo static prop models. Split into multiple generate calls when a desired set is larger than the current client/API batch cap. Pass parameters as one JSON object:
+4. Generate the selected asset set. By default generate 1-3 assets (batch max 4). For explicit game-regeneration requests, follow the quantity limits above: 1-5 Gemini-Tripo key entity models, and optionally 3-10 Tripo static prop models. Split into multiple generate calls when a desired set is larger than the current client/API batch cap. Pass parameters as one JSON object:
 
 ```bash
 node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
@@ -85,9 +86,9 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
    - On `gemini_reference`, character/creature assets are automatically rigged after GLB generation. Prefer `animationClips` when present; if Tripo retarget failed, expect main-GLB fallback fields `animations: ["Idle", "Walk"]` and `animationSource: "procedural_native_clips"`.
    - `force`: only when the user explicitly asked to regenerate assets.
    - The command blocks while polling the remote job (typically 1-3 minutes per batch) and prints a JSON result; exit code 1 means the batch failed.
-4. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
-5. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`.
-6. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
+5. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
+6. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`.
+7. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
 
 Example `--params` JSON:
 
@@ -135,7 +136,8 @@ Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the 
 
 ## Failure handling
 
-- Asset API unreachable (readiness reports `unreachable`): explain that remote model generation is unavailable, ask the user to check the default asset service, network access, and `GAME_ASSETS_API_TOKEN` if required; only ask for `GAME_ASSETS_API_URL` when overriding the default service. Keep primitive fallbacks and continue the playable game.
+- Missing `GAME_ASSETS_API_TOKEN`: stop before any readiness/generate/animate call and ask the user to provide `GAME_ASSETS_API_TOKEN`. Do not continue the asset generation workflow until the token is available.
+- Asset API unreachable (readiness reports `unreachable`): explain that remote model generation is unavailable, ask the user to check the default asset service, network access, and `GAME_ASSETS_API_TOKEN`; only ask for `GAME_ASSETS_API_URL` when overriding the default service. Keep primitive fallbacks only for the playable game shell, not as a substitute for a requested authenticated generation step.
 - Server missing Gemini key on the `gemini_reference` route: switch to `tripo` if acceptable, or tell the user the server operator must configure the Gemini key.
 - Zero Tripo balance: do not retry in a loop. Keep fallbacks and record the skipped stage in the README.
 - Partial success: use generated assets that succeeded and fallback geometry for the rest.
