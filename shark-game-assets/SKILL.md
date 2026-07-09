@@ -7,6 +7,17 @@ description: Generate and wire key GLB assets for Codex-built 3D web games. Use 
 
 Use this skill when a 3D game needs concrete, recognizable GLB assets rather than only primitive geometry. The skill owns the end-to-end workflow: choose the route, generate a small focused asset set, write/read `asset_manifest.json`, and wire the GLBs into the game with fallbacks.
 
+## Self-update before use
+
+Before taking task actions with this skill, perform a best-effort self-update check so installed copies stay current without requiring the user to ask for updates.
+
+- After reading this `SKILL.md`, locate the skill directory and nearest git repository, if any.
+- If the skill is in a git repository with a configured upstream or `origin`, run a non-interactive remote check such as `git fetch --quiet --prune`.
+- Compare the local commit with the upstream commit. If the upstream is ahead and there are no local uncommitted changes under this skill directory, update with a fast-forward-only command such as `git pull --ff-only`, then re-read the updated `SKILL.md` before continuing.
+- If the skill directory has local changes, the repository has no remote/upstream, the remote check fails, or a fast-forward update is not possible, do not overwrite local files and do not block the user's task. Briefly note that the installed skill could not be auto-updated and continue with the local copy.
+- Do not use browser use or computer use for this update check. Use local git or the available plugin/skill installer tooling only when it is already part of the user's installed skill workflow.
+- This self-update check is for the skill files only. It does not authorize asset API readiness/generation/animation calls and does not replace the `GAME_ASSETS_API_TOKEN` and remote-call authorization rules below.
+
 ## Required behavior
 
 - If the game prompt contains explicit or implicit entities, such as a player, character, enemy, collectible, vehicle, weapon, obstacle, boss, mascot, key prop, or environment object, GLB generation is a required stage when the tool is available.
@@ -142,7 +153,7 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
    - `force`: only when the user explicitly asked to regenerate assets.
    - The command blocks while polling the remote job (typically 1-3 minutes per batch) and prints a JSON result; exit code 1 means the batch failed.
 6. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
-7. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`.
+7. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`. Treat the manifest as a semantic registry: choose assets by `bindings`, `id`, or `role`, and choose animations by `actions.<name>.url` or legacy `animationClips[].name`/`preset`, never by guessing file names or folders.
 8. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
 
 Example `--params` JSON:
@@ -171,14 +182,144 @@ Example `--params` JSON:
 }
 ```
 
+## Manifest organization and action registry
+
+Treat `asset_manifest.json` as the source of truth for asset identity and action identity. Do not infer meaning from file names such as `model.glb`, UUID folders, URL order, or natural-language descriptions. A generated asset can have several GLBs with the same basename in different folders; the manifest fields are the contract.
+
+Prefer this semantic registry shape for new or rewritten manifests:
+
+```json
+{
+  "version": 2,
+  "schema": "shark-game-assets-manifest",
+  "route": "gemini_image_then_tripo_image_to_model",
+  "gamePrompt": "...",
+  "bindings": {
+    "player": "checkout-guest-player",
+    "boss": "blind-grandma-boss"
+  },
+  "assets": [
+    {
+      "id": "checkout-guest-player",
+      "role": "player",
+      "gameplayRole": "player",
+      "name": "Checkout Guest Player",
+      "assetKind": "character",
+      "model": {
+        "kind": "base-rig",
+        "url": "/generated-assets/main-task/model.glb",
+        "format": "glb",
+        "source": "gemini_image_then_tripo_image_to_model",
+        "referenceImageUrl": "/generated-assets/gemini-reference-images/checkout-guest-player.jpg"
+      },
+      "rig": {
+        "rigged": true,
+        "rigType": "biped",
+        "animationSource": "tripo_retarget_clips"
+      },
+      "actions": {
+        "idle": {
+          "url": "/generated-assets/idle-task/model.glb",
+          "format": "glb",
+          "source": "tripo_retarget_clip",
+          "preset": "preset:biped:idle",
+          "loop": true,
+          "rootMotion": "none"
+        },
+        "walk": {
+          "url": "/generated-assets/walk-task/model.glb",
+          "format": "glb",
+          "source": "tripo_retarget_clip",
+          "preset": "preset:biped:walk",
+          "loop": true,
+          "rootMotion": "in_place"
+        }
+      },
+      "actionAliases": {
+        "default": "idle",
+        "stand": "idle",
+        "move": "walk",
+        "moving": "walk"
+      },
+      "fallback": {
+        "model": "primitive:humanoid",
+        "animation": "group-bob-tilt"
+      }
+    }
+  ]
+}
+```
+
+Manifest authoring rules:
+
+- `model.url` is the visible base model or base rig. It is not automatically the `idle`, `walk`, or `run` action.
+- `actions` is the primary action registry. Runtime code should resolve `walk` from `asset.actions.walk.url`, `idle` from `asset.actions.idle.url`, and so on.
+- `bindings` maps game slots to asset ids. Prefer `manifest.bindings.player` over searching for the first asset with `role: "player"` when a binding exists.
+- `role` and `gameplayRole` should describe game semantics such as `player`, `boss`, `npc`, `collectible`, or `hazard`. `assetKind` should describe asset form such as `character`, `creature`, `prop`, `vehicle`, or `environment`.
+- Keep legacy `url`, `animationClips`, `animations`, and `animationSource` fields readable for backward compatibility, but normalize them into `model` and `actions` at runtime before use.
+
+Runtime resolver pattern for backward compatibility:
+
+```js
+function getModelUrl(asset) {
+  return asset.model?.url ?? asset.url ?? null;
+}
+
+function getActionUrl(asset, actionName) {
+  const alias = asset.actionAliases?.[actionName] ?? actionName;
+  const action = asset.actions?.[alias];
+  if (action?.url) return action.url;
+
+  const legacyClip = asset.animationClips?.find((clip) =>
+    clip.name === alias || clip.name === actionName || clip.preset?.endsWith(`:${alias}`) || clip.preset?.endsWith(`:${actionName}`)
+  );
+  return legacyClip?.url ?? null;
+}
+```
+
+Standard animated character loading chain for retarget clips:
+
+1. Load the main character GLB with `GLTFLoader` from `getModelUrl(asset)`.
+2. Normalize and add the main character `gltf.scene` to the game scene.
+3. Create one `THREE.AnimationMixer` on the main character root.
+4. Load each action GLB with `GLTFLoader` from `getActionUrl(asset, "idle")`, `getActionUrl(asset, "walk")`, and any other required actions.
+5. Extract `THREE.AnimationClip`s from the action GLBs' `gltf.animations`; do not add those action GLB scenes to the game scene unless using the fallback described below.
+6. Play those clips on the main character mixer, for example `mixer.clipAction(walkClip, mainRoot)`.
+7. Switch actions from game state and call `mixer.update(delta)` every frame.
+
+Minimal Three.js shape:
+
+```js
+const mainGltf = await loadGLB(getModelUrl(asset));
+const mainRoot = normalizeModel(mainGltf.scene);
+scene.add(mainRoot);
+
+const mixer = new THREE.AnimationMixer(mainRoot);
+const idleGltf = await loadGLB(getActionUrl(asset, "idle"));
+const walkGltf = await loadGLB(getActionUrl(asset, "walk"));
+
+const idleAction = mixer.clipAction(idleGltf.animations[0], mainRoot);
+const walkAction = mixer.clipAction(walkGltf.animations[0], mainRoot);
+
+idleAction.play();
+
+function tick(delta) {
+  mixer.update(delta);
+}
+```
+
 ## Runtime integration rules
 
 - Normalize every loaded GLB with `THREE.Box3().setFromObject()`: scale to target size, center horizontally, place the bottom at `y = 0`, and apply a stable facing offset.
 - Separate visuals from gameplay hitboxes. Collision should use stable gameplay dimensions, not raw model bounds or mesh origins.
-- If `manifest.assets` contains `rigged`, `rigType`, `animationClips`, `animations`, or `animationSource`, inspect the loaded `gltf.animations` before claiming native animation exists.
+- If `manifest.assets` contains `rigged`, `rigType`, `actions`, `animationClips`, `animations`, or `animationSource`, inspect the loaded `gltf.animations` before claiming native animation exists.
+- For `animationSource: "tripo_retarget_clips"` or a character/creature asset with `actions`/`animationClips`, load the visible main model from `model.url` or legacy `url`, then separately load each action GLB from `actions.<name>.url` or legacy `animationClips[].url`. The action GLB scene is normally only a clip source and should not be added to the game scene.
+- Extract `THREE.AnimationClip`s from action GLBs and play them on the main model's root with one `THREE.AnimationMixer`, for example `mixer.clipAction(walkClip, mainRoot)`. This depends on the action GLB and main model sharing a compatible rig, which Tripo retarget clips for the same asset are expected to do.
 - If `animationSource` is `procedural_native_clips`, play the main GLB's embedded `Idle`/`Walk` clips directly and label them as procedural fallback clips, not Tripo retarget clips.
 - When native clips exist, create a `THREE.AnimationMixer`, map clips by case-insensitive substrings such as `idle`, `walk`, `run`, and `jump`, and call `mixer.update(delta)` every frame.
+- Drive action switching from game state: idle/stand states should play `idle`, movement should play `walk` or `run`, and jump/air states should play `jump` when available. Use cross-fades when changing between actions.
 - If no native clips exist, use whole-group bob/tilt/rotation or explicitly labeled procedural clips as fallback animation.
+- If a retarget clip does not bind to the main model's skeleton, fall back to directly displaying the action GLB scene for that state or to a clearly labeled procedural/group fallback. Do not silently claim the main rig is playing that retarget clip.
 - Add a short `README.md` section named `3D Asset Pipeline` or `3D 素材流水线` describing which assets were generated, which route was used, and what runtime animation source is used.
 
 ## Third-Person Escape Room Game Generation
