@@ -59,6 +59,53 @@ The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs
 
 `GAME_ASSETS_API_TOKEN` is mandatory. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the asset workflow and ask the user to provide `GAME_ASSETS_API_TOKEN`; do not continue with readiness checks, generation, animation, fallbacks-as-a-substitute, or speculative planning that assumes generation can proceed. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
 
+## Help / Trigger Examples
+
+When the user asks "how do I use this skill?", "how do I trigger this skill?", "help", "怎么使用这个 skill", "怎么触发这个 skill", or similar, summarize the token requirement and show examples like these.
+
+Always mention: `GAME_ASSETS_API_TOKEN` is required before any asset API readiness/generate/animate call. If it is not already available, ask the user for it and pause the asset workflow.
+
+Explicit skill invocation examples:
+
+```md
+[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请帮我生成一个可直接运行的 3D 密室逃脱小游戏。剧本、画风、逻辑剧情、地图、人物主题见上传的剧本。
+
+游戏类型：第三人称俯视角 3D 密室逃脱
+技术栈：Three.js，原生 JavaScript 或 React Three Fiber 均可
+运行方式：浏览器中直接运行
+注意遵守现实物理规律
+```
+
+```md
+[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 重新生成这个 3D 游戏。玩家、NPC、反派和关键道具模型都不要复用历史 GLB。生成过程中用 /regeneration.html 动态展示模型进度，完成后只把本轮实际用到的新素材写进 asset_manifest.json。
+```
+
+```md
+[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请为我的 Three.js 游戏生成并接入 3 个 GLB 资产：玩家骑士、骷髅敌人、魔法钥匙。用 GLTFLoader 加载，统一缩放和落地，并保留 primitive fallback。
+```
+
+```md
+[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请给这个已有角色 GLB 自动 rig，并生成 idle 和 walk 动作 clips。每个动作单独输出 GLB，不要把多个 retarget preset 合并成一次请求。
+```
+
+Natural-language trigger examples that do not explicitly name the skill:
+
+```md
+请帮我做一个可直接运行的 Three.js 3D 跑酷小游戏，玩家是宇航员，敌人是巡逻机器人，收集物是能量水晶。需要生成并接入对应 GLB 模型。
+```
+
+```md
+我上传了一个密室逃脱剧本。请根据剧本生成一个浏览器可运行的第三人称俯视角 3D 密室逃脱游戏，地图、剧情、谜题、人物和道具都来自剧本，并生成关键人物和道具模型。
+```
+
+```md
+这个 Three.js 游戏现在玩家、敌人和收集物都是方块/球体。请生成对应 GLB 模型并接入，保留加载失败时的基础几何 fallback。
+```
+
+```md
+请用 Gemini 先生成白底角色参考图，再用 Tripo 生成游戏角色 GLB。角色需要清晰轮廓、T-pose、可用于 Three.js，并带 idle/walk 动作。
+```
+
 ## Tool workflow
 
 If MCP tools named `mcp__game_assets__*` are available in your session, prefer them. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations.
