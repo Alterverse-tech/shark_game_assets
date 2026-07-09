@@ -37,6 +37,9 @@ Before taking task actions with this skill, perform a best-effort self-update ch
 When the user asks, in Chinese or English, for the game to be regenerated with new entity character/prop models and says the generation process should dynamically show those models, follow this workflow:
 
 - Treat the request as an explicit regeneration request: generate fresh GLBs and do not wire any historical GLB into the regenerated game.
+- Treat the regeneration preview website as a first-class subtask of game model generation, not as a final optional polish step. The overall game generation should be organized as: preview website subtask, model generation subtask, `asset_manifest.json`/status update subtask, then game integration subtask.
+- After token presence and remote-call authorization are satisfied, restore or create the preview website before the first remote asset generation call. The user should be able to open `/regeneration.html` while models are still pending/running.
+- Keep this preview website lightweight and standardized so it does not materially slow the game generation task. Copy the template, write/update JSON, bundle the preview script, and start or reuse the local static/dev server; do not redesign the page or add custom UI unless the user explicitly asks.
 - Treat the bundled template files in `templates/regeneration/` as the canonical source of truth for `/regeneration.html`, not as loose inspiration. In the blood moon castle project this canonical page is served as `http://127.0.0.1:4173/regeneration.html`; if the dev server uses a different port, keep the same path and UI structure. Do not scrape or download the localhost URL at runtime; that URL is only a served instance of the bundled template.
 - When a project is missing this page, or when the page has drifted from the contract, restore it from the skill template: copy `templates/regeneration/regeneration.html` to `public/regeneration.html`, copy `templates/regeneration/regeneration-preview.js` to `src/regeneration-preview.js`, create/update `public/regeneration-status.json` from `templates/regeneration/regeneration-status.sample.json`, and bundle the preview script to `public/regeneration-preview.bundle.js`.
 - Preserve or recreate the same DOM contract: `.app` grid root, left `aside`, right `main`, `#list` for item buttons, `#stage` for the Three.js canvas, `.status#status` for the compact status panel, and `<script src="./regeneration-preview.bundle.js"></script>`.
@@ -52,9 +55,21 @@ rg -n 'regeneration-status\.json|new GLTFLoader|new OrbitControls|stage\.appendC
 ```
 
 - Back the page with a status JSON file, normally `public/regeneration-status.json`, containing per-asset `id`, `name`, `role`, `status`, `progress`, `runtimeUrl`, `clips`, and `error`. Update it throughout generation so the page can poll and refresh without browser automation.
+- The status JSON should make semantic model state visible, not just raw file completion. For animated character/creature assets, list the base model and each semantic action GLB separately or expose them in `clips`, for example player base, player `idle`, player `walk`, boss base, boss `idle`, boss `walk`. This helps users and Codex verify that the correct action GLB is used at the correct gameplay state.
+- During generation, update each status item from `pending` to `running` to `ready` or `failed`, with progress and a clear error if one stage fails. Do not wait until the entire batch completes before making successful GLBs previewable.
 - As each GLB completes, copy it into the runtime `public/generated-assets/` tree, set `runtimeUrl`, and make it available in the live preview before the full batch is complete.
 - On completion, update `asset_manifest.json`, the game asset constants/import paths, and any asset preview page so they list only the freshly generated assets actually used by the latest game.
 - Keep primitive fallbacks in the game for failed slots, but do not silently replace a failed regenerated asset with an older GLB.
+
+Suggested live-preview subtask checklist:
+
+1. Restore `public/regeneration.html`, `src/regeneration-preview.js`, `public/regeneration-status.json`, and `public/regeneration-preview.bundle.js` from the template contract.
+2. Start or reuse the local static/dev server and give the user the `/regeneration.html` URL.
+3. Write initial status items for every planned asset and semantic action slot, including base model, `idle`, `walk`, `run`, or `jump` when those actions are expected.
+4. Run the asset generation or regeneration calls.
+5. After each model or retarget action completes, copy the GLB to `public/generated-assets/`, update that item's `runtimeUrl`, `status`, and `progress`, and leave the page to auto-refresh by polling.
+6. After all tasks finish, update `asset_manifest.json` and game code using the same semantic mapping shown in the preview page.
+7. Run the static contract checks before claiming the preview website is ready.
 
 ## Route choice
 
