@@ -101,12 +101,11 @@ Always mention: `GAME_ASSETS_API_TOKEN` is required before any asset API readine
 Explicit skill invocation examples:
 
 ```md
-[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请帮我生成一个可直接运行的 3D 密室逃脱小游戏。剧本、画风、逻辑剧情、地图、人物主题见上传的剧本。
+[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请帮我的 Three.js/WebGL 3D 游戏生成并接入关键 GLB 模型。游戏设定、画风、角色和道具都以我提供的内容为准。
 
-游戏类型：第三人称俯视角 3D 密室逃脱
-技术栈：Three.js，原生 JavaScript 或 React Three Fiber 均可
+需要模型：<主角或玩家描述>、<敌人或 NPC 描述>、<关键道具或收集物描述>
+技术栈：<项目现有技术栈>
 运行方式：浏览器中直接运行
-注意遵守现实物理规律
 ```
 
 ```md
@@ -114,7 +113,7 @@ Explicit skill invocation examples:
 ```
 
 ```md
-[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请为我的 Three.js 游戏生成并接入 3 个 GLB 资产：玩家骑士、骷髅敌人、魔法钥匙。用 GLTFLoader 加载，统一缩放和落地，并保留 primitive fallback。
+[$shark-game-assets](/Users/cppeng/Documents/study/.agents/skills/shark-game-assets/SKILL.md) 请为我的 Three.js 游戏生成并接入 3 个 GLB 资产：<玩家角色描述>、<敌人或 NPC 描述>、<关键道具描述>。用 GLTFLoader 加载，统一缩放和落地，并保留 primitive fallback。
 ```
 
 ```md
@@ -124,11 +123,11 @@ Explicit skill invocation examples:
 Natural-language trigger examples that do not explicitly name the skill:
 
 ```md
-请帮我做一个可直接运行的 Three.js 3D 跑酷小游戏，玩家是宇航员，敌人是巡逻机器人，收集物是能量水晶。需要生成并接入对应 GLB 模型。
+请帮我做一个可直接运行的 Three.js 3D 游戏，并根据我提供的玩家、敌人、收集物或关键道具描述生成并接入对应 GLB 模型。
 ```
 
 ```md
-我上传了一个密室逃脱剧本。请根据剧本生成一个浏览器可运行的第三人称俯视角 3D 密室逃脱游戏，地图、剧情、谜题、人物和道具都来自剧本，并生成关键人物和道具模型。
+我上传了一个游戏设定或剧本。请根据我提供的内容生成浏览器可运行的 3D 游戏，并为其中出现的关键人物和道具生成模型。
 ```
 
 ```md
@@ -136,7 +135,7 @@ Natural-language trigger examples that do not explicitly name the skill:
 ```
 
 ```md
-请用 Gemini 先生成白底角色参考图，再用 Tripo 生成游戏角色 GLB。角色需要清晰轮廓、T-pose、可用于 Three.js，并带 idle/walk 动作。
+请用 Gemini 先为我描述的角色生成白底参考图，再用 Tripo 生成游戏角色 GLB。角色需要清晰轮廓、T-pose、可用于 Three.js，并带 idle/walk 动作。
 ```
 
 ## Tool workflow
