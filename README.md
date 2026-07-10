@@ -24,6 +24,20 @@ Set `GAME_ASSETS_API_URL` only if you need to override the default service.
 
 Docs & downloads: http://54.81.110.182:3001/generated-assets/site/
 
+## Publish Finished Games
+
+The skill can publish a checked static build to a Shark Coding Agent portal after the user explicitly chooses to upload it:
+
+```bash
+export SHARK_PORTAL_URL=https://your-portal.example.com
+export SHARK_PORTAL_TOKEN=<portal-upload-token>
+
+node shark-game-assets/scripts/publish-game.mjs check --cwd "$PWD" --dist dist --title "My Game"
+node shark-game-assets/scripts/publish-game.mjs publish --cwd "$PWD" --dist dist --title "My Game" --confirm-upload
+```
+
+The portal token is separate from `GAME_ASSETS_API_TOKEN`. Only built files under `dist/` are uploaded; the script rejects project roots, symlinks, hidden/secret files, source maps, unsafe paths, and non-portable root-relative asset URLs.
+
 ## Token And Remote Authorization
 
 `GAME_ASSETS_API_TOKEN` is required, but token presence is not the same as consent to send it to a remote host. Before the skill calls readiness, generate, or animate, the user must authorize using the token with the configured asset service, for example:
@@ -101,6 +115,7 @@ Playable handoff is prioritized: when automated/browser verification is slow but
 shark-game-assets/
   SKILL.md
   scripts/game-assets-mcp.mjs
+  scripts/publish-game.mjs
   subskills/
     tripo-rig-clip.md
     third-person-escape-room-game.md

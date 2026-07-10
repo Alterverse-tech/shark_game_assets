@@ -1,6 +1,6 @@
 ---
 name: shark-game-assets
-description: Generate and wire key GLB assets for Codex-built 3D web games. Use when a Three.js, WebGL, or 3D mini game has recognizable entities such as a player, character, enemy, collectible, vehicle, weapon, hazard, boss, mascot, or key prop.
+description: Generate and wire key GLB assets for Codex- or Claude Code-built 3D web games, and publish completed static game builds to a Shark Coding Agent portal when the user chooses. Use when a Three.js, WebGL, or 3D mini game has recognizable entities such as a player, character, enemy, collectible, vehicle, weapon, hazard, boss, mascot, or key prop, or when the user asks to upload, publish, share, or add the finished game to the Shark portal/showcase.
 ---
 
 # Shark Game Assets
@@ -26,11 +26,13 @@ Before taking task actions with this skill, perform a best-effort self-update ch
 - For regeneration work with concrete characters or critical entity props, use the Gemini-Tripo branch (`route: "gemini_reference"`) for those key assets and keep that set to 1-5 models total. If the client/API batch cap is lower than the requested total, split into multiple generate calls.
 - For secondary static props that do not need strong visual control or rigged animation, use the faster Tripo branch (`route: "tripo"`) and keep that set to 3-10 models total. Do not include decorative filler just to reach the lower bound.
 - Use primitive Three.js geometry only as an interim placeholder while assets are pending and as the runtime fallback if a GLB fails to load.
-- If `GAME_ASSETS_API_TOKEN` is missing for a task that triggers this skill, stop the entire game-generation or asset-integration workflow and ask the user for the token. Do not downgrade to a playable procedural-geometry Three.js version, do not scaffold the game shell with primitive stand-ins, and do not continue implementation until the token is available.
-- If `GAME_ASSETS_API_TOKEN` exists but the user has not clearly authorized sending it to `GAME_ASSETS_API_URL` or the default remote asset service, stop before any remote call and ask for explicit authorization. Do not treat token presence as consent to send it to an external IP or host.
+- If the current task requires asset readiness, generation, animation, or integration and `GAME_ASSETS_API_TOKEN` is missing, stop that game-generation or asset-integration workflow and ask the user for the token. A publish-only request does not require the asset token.
+- If an asset API call is required and `GAME_ASSETS_API_TOKEN` exists but the user has not clearly authorized sending it to `GAME_ASSETS_API_URL` or the default remote asset service, stop before that remote call and ask for explicit authorization. Do not treat token presence as consent to send it to an external IP or host.
 - If remote asset authorization is denied, blocked by policy, or the asset service is unreachable, pause the asset generation workflow and ask the user how to proceed. Do not silently replace requested GLB generation with local placeholder/procedural models and present that as completed `shark-game-assets` work.
 - Do not regenerate existing assets unless the user explicitly asks. If `asset_manifest.json` already has loadable assets, reuse it.
 - Avoid copyrighted characters, brand names, logos, and celebrity likenesses. Rewrite into original designs.
+- After a game is complete and locally verified, you may ask once whether the user wants to publish it to their Shark portal. Never upload automatically or infer consent from asset-generation authorization.
+- Portal publishing requires a separate `SHARK_PORTAL_TOKEN` and explicit authorization to send the built static files and that token to `SHARK_PORTAL_URL`. Never reuse `GAME_ASSETS_API_TOKEN` for publishing.
 
 ## Game Regeneration With Live Preview
 
@@ -85,8 +87,10 @@ The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs
 
 - `GAME_ASSETS_API_URL` — optional override for the asset API base URL
 - `GAME_ASSETS_API_TOKEN` — required per-user access token
+- `SHARK_PORTAL_URL` — required only when publishing a completed game; the Coding Agent portal base URL
+- `SHARK_PORTAL_TOKEN` — required only when publishing; a least-privilege portal upload token, separate from the asset token
 
-`GAME_ASSETS_API_TOKEN` is mandatory. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the entire game-generation or asset-integration workflow and ask the user to provide `GAME_ASSETS_API_TOKEN`; do not continue with readiness checks, generation, animation, fallbacks-as-a-substitute, procedural-model implementation, playable placeholder shells, or speculative planning that assumes generation can proceed. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
+`GAME_ASSETS_API_TOKEN` is mandatory for asset API operations. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the game-generation or asset-integration workflow that needs those operations and ask the user to provide it; do not substitute procedural assets or assume generation can proceed. A publish-only workflow uses only the separate portal variables. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
 
 Token presence is not remote-call consent. Before sending `GAME_ASSETS_API_TOKEN` to the default asset service (`http://54.81.110.182:3001`) or to a custom `GAME_ASSETS_API_URL`, confirm that the user authorizes using that token with that service for readiness/generate/animate. If authorization is absent or ambiguous, ask a concise clarification such as: "I need to use `GAME_ASSETS_API_TOKEN` to call `http://54.81.110.182:3001` for asset readiness/generation/animation. Please confirm that this is authorized." Pause the asset workflow until the user confirms.
 
@@ -96,7 +100,7 @@ If the remote call is blocked by policy because it would send the token to an ex
 
 When the user asks "how do I use this skill?", "how do I trigger this skill?", "help", "怎么使用这个 skill", "怎么触发这个 skill", or similar, summarize the token requirement and show examples like these.
 
-Always mention: `GAME_ASSETS_API_TOKEN` is required before any asset API readiness/generate/animate call. If it is not already available, ask the user for it and pause the asset workflow.
+For asset-generation help, always mention that `GAME_ASSETS_API_TOKEN` is required before any asset API readiness/generate/animate call. For publish-only help, mention `SHARK_PORTAL_URL` and `SHARK_PORTAL_TOKEN` instead.
 
 Explicit skill invocation examples:
 
@@ -138,9 +142,9 @@ Natural-language trigger examples that do not explicitly name the skill:
 请用 Gemini 先为我描述的角色生成白底参考图，再用 Tripo 生成游戏角色 GLB。角色需要清晰轮廓、T-pose、可用于 Three.js，并带 idle/walk 动作。
 ```
 
-## Tool workflow
+## Asset tool workflow
 
-If MCP tools named `mcp__game_assets__*` are available in your session, prefer them. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations.
+For asset generation or integration tasks, prefer MCP tools named `mcp__game_assets__*` when available. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations. Skip this workflow for a publish-only request.
 
 1. Run `pwd` if you do not already know the current workspace path.
 2. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause the whole game-generation or asset-integration workflow until they provide it. Do not build a procedural Three.js fallback game or continue with primitive stand-ins while waiting.
@@ -169,6 +173,44 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
 6. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
 7. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`. Treat the manifest as a semantic registry: choose assets by `bindings`, `id`, or `role`, and choose animations by `actions.<name>.url` or legacy `animationClips[].name`/`preset`, never by guessing file names or folders.
 8. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
+
+## Publish a completed game to the Shark portal
+
+Use the bundled zero-dependency client at `scripts/publish-game.mjs` only after the game has a dedicated static build directory such as `dist/`. The portal never receives source files and never runs the project's build scripts.
+
+1. Run the project's normal tests and production build locally. For Vite, make the build subpath-portable with `base: "./"` or an equivalent `vite build --base ./` setting.
+2. Validate the exact build without making a remote call:
+
+```bash
+node <skill-dir>/scripts/publish-game.mjs check \
+  --cwd "$(pwd)" \
+  --dist dist \
+  --title "<game title>" \
+  --description "<short game description>" \
+  --author "<creator name>" \
+  --client codex
+```
+
+   Use `--client claude-code` for a Claude Code session. Fix every reported issue before continuing. The check requires root `index.html`, rejects symlinks, hidden/secret/source-map files, path escapes, oversized bundles, and root-relative asset URLs, then prints a stable `clientUploadId`.
+3. If the user has not already asked to publish this exact build, ask whether they want to upload it. Also confirm that `SHARK_PORTAL_TOKEN` may be sent to the configured `SHARK_PORTAL_URL` together with the checked build files. Stop until both choices are explicit.
+4. Confirm `SHARK_PORTAL_URL` and `SHARK_PORTAL_TOKEN` are available in the environment. Do not print the token or put it in a URL/command argument.
+5. Publish the same checked build:
+
+```bash
+node <skill-dir>/scripts/publish-game.mjs publish \
+  --cwd "$(pwd)" \
+  --dist dist \
+  --title "<game title>" \
+  --description "<short game description>" \
+  --author "<creator name>" \
+  --client codex \
+  --confirm-upload
+```
+
+6. Return the `playUrl` from the JSON result to the user. A retry uses the same content-derived idempotency key, so it must not create duplicate portal games.
+
+Publishing is distinct from asset generation. A user may authorize one and decline the other. `check` is always local; `publish` is the only command that sends files remotely.
+`publish --dry-run` is an alias for the same local-only validation behavior when a caller wants to exercise the publish command without making a network request.
 
 Example `--params` JSON:
 
@@ -352,3 +394,7 @@ Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the 
 - Server missing Gemini key on the `gemini_reference` route: switch to `tripo` if acceptable, or tell the user the server operator must configure the Gemini key.
 - Zero Tripo balance: do not retry in a loop. Keep fallbacks and record the skipped stage in the README.
 - Partial success: use generated assets that succeeded and fallback geometry for the rest.
+- Portal `401`: stop and ask for a valid `SHARK_PORTAL_TOKEN`; do not fall back to the asset token.
+- Portal `413`: reduce only the built artifact size (for example compress textures/audio or remove unused build assets), rebuild, and run `check` again.
+- Portal `422`: fix the reported static-build/path/metadata issue locally and rerun `check`; never bypass the validation by uploading the project root.
+- Portal `409` or a transient network failure: retry the identical checked build so the same `clientUploadId` is reused. Do not change metadata merely to force a duplicate upload.
