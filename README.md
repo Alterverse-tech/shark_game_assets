@@ -79,12 +79,24 @@ shark-game-assets/templates/regeneration/
 Use it when a game regeneration process needs to show models dynamically as they complete. The template provides:
 
 - `public/regeneration.html`: fixed UI structure with a left progress list and right Three.js model viewer.
-- `src/regeneration-preview.js`: polling viewer logic using `GLTFLoader` and `OrbitControls`.
-- `public/regeneration-status.json`: status data shape for progress, ready URLs, clips, and errors.
+- `src/regeneration-preview.js`: polling viewer logic using `GLTFLoader` and `OrbitControls`, including separate base/action GLB buttons and action-clip playback on the base rig.
+- `regeneration-plan.json`: current-run asset/action intent, kept separate from generated status.
+- `public/regeneration-status.json`: derived progress, ready URLs, clips, and errors.
+
+Set up and run the stable preview pipeline with:
+
+```bash
+node shark-game-assets/scripts/setup-regeneration-preview.mjs --cwd "$PWD"
+# Edit regeneration-plan.json before generation.
+node shark-game-assets/scripts/sync-regeneration-status.mjs --cwd "$PWD" --watch --interval 1000
+node shark-game-assets/scripts/validate-regeneration-preview.mjs --cwd "$PWD"
+```
+
+The synchronizer reads root and `.asset-batches/*` job/manifest files, writes status atomically, and marks an asset ready only after its GLB exists under `public/generated-assets`.
 
 The served page should remain `/regeneration.html`. In the blood moon castle project this is the page seen at `http://127.0.0.1:4173/regeneration.html`, but the source of truth is the bundled template, not a scraped localhost page.
 
-Static contract check:
+Static contract check (the validator also checks schemas and ready files):
 
 ```bash
 rg -n 'id="list"|id="stage"|id="status"|class="app"|regeneration-preview\.bundle\.js' public/regeneration.html
@@ -115,13 +127,17 @@ Playable handoff is prioritized: when automated/browser verification is slow but
 shark-game-assets/
   SKILL.md
   scripts/game-assets-mcp.mjs
+  scripts/setup-regeneration-preview.mjs
+  scripts/sync-regeneration-status.mjs
+  scripts/validate-regeneration-preview.mjs
   scripts/publish-game.mjs
+  references/regeneration-preview.md
   subskills/
     tripo-rig-clip.md
     third-person-escape-room-game.md
   templates/regeneration/
     regeneration.html
     regeneration-preview.js
+    regeneration-plan.sample.json
     regeneration-status.sample.json
-    README.md
 ```

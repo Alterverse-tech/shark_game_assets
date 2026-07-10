@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>血月古堡素材重新生成</title>
+    <title>3D 素材生成进度</title>
     <style>
       * { box-sizing: border-box; }
       html, body { width: 100%; height: 100%; }
@@ -14,10 +14,15 @@
       .note { margin: 0 0 14px; color: #b8bec8; font-size: 13px; line-height: 1.5; }
       .item { width: 100%; margin: 0 0 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 10px; background: rgba(255,255,255,.05); color: #f2eee6; text-align: left; }
       .item.ready { border-color: rgba(116, 200, 143, .7); }
+      .item.failed { border-color: rgba(213, 93, 93, .7); }
       .item.active { background: rgba(229,183,108,.14); border-color: rgba(229,183,108,.7); }
-      .item strong, .item span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .item strong, .item span, .item code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .item strong { font-size: 13px; }
       .item span { margin-top: 4px; color: #aeb5c0; font-size: 12px; }
+      .item code { margin-top: 4px; color: #788391; font-size: 10px; }
+      .item.clip-item { width: calc(100% - 18px); margin-left: 18px; padding: 8px 10px; border-left-color: rgba(229,183,108,.42); background: rgba(8,10,14,.34); }
+      .item.clip-item strong { color: #d9c59f; font-size: 12px; }
+      .item.clip-item::before { content: "↳"; float: left; margin-right: 7px; color: #7e8794; }
       progress { width: 100%; height: 8px; margin-top: 8px; accent-color: #e5b76c; }
       main { position: relative; min-width: 0; }
       #stage { position: absolute; inset: 0; }
@@ -30,8 +35,8 @@
   <body>
     <div class="app">
       <aside>
-        <h1>重新生成进度</h1>
-        <p class="note">这个页面会轮询生成状态。每完成一个新模型，就可以点击预览；全部完成后游戏和素材预览页会切到新模型。</p>
+        <h1>素材生成进度</h1>
+        <p class="note">基础模型与角色动作模型会分别显示。只有 GLB 确实落入 public/generated-assets 后才可点击；动作会绑定基础模型并循环播放。</p>
         <div id="list"></div>
       </aside>
       <main>
@@ -39,6 +44,6 @@
         <div class="status" id="status">等待生成开始。</div>
       </main>
     </div>
-    <script src="./regeneration-preview.bundle.js"></script>
+    <script src="./regeneration-preview.bundle.js?v=template"></script>
   </body>
 </html>

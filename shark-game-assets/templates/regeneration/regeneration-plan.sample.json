@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "runId": "replace-with-a-fresh-run-id",
+  "startedAt": "2026-01-01T00:00:00.000Z",
+  "items": [
+    {
+      "id": "sample-player",
+      "name": "示例角色",
+      "role": "player",
+      "actions": ["idle", "walk"]
+    },
+    {
+      "id": "sample-prop",
+      "name": "示例道具",
+      "role": "prop",
+      "actions": []
+    }
+  ]
+}

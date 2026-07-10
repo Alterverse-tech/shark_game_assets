@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const fixtureParent = path.resolve(process.env.TEST_PROJECT_ROOT || os.tmpdir());
+const fixture = await mkdtemp(path.join(fixtureParent, ".regeneration-preview-test-"));
+
+function run(script, args = []) {
+  const result = spawnSync(process.execPath, [path.join(scriptDir, script), "--cwd", fixture, ...args], { encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`${script} failed:\n${result.stdout}\n${result.stderr}`);
+  return result.stdout;
+}
+
+try {
+  const setupArgs = process.env.ESBUILD_BIN_PATH ? ["--esbuild", process.env.ESBUILD_BIN_PATH] : [];
+  run("setup-regeneration-preview.mjs", setupArgs);
+  const startedAt = new Date(Date.now() - 1000).toISOString();
+  await writeFile(path.join(fixture, "regeneration-plan.json"), `${JSON.stringify({
+    version: 1,
+    runId: "test-run",
+    startedAt,
+    items: [
+      { id: "sample-player", name: "Sample Player", role: "player", actions: ["idle", "walk"] },
+      { id: "sample-prop", name: "Sample Prop", role: "prop", actions: [] }
+    ]
+  }, null, 2)}\n`);
+  await mkdir(path.join(fixture, "public", "generated-assets"), { recursive: true });
+  await writeFile(path.join(fixture, "public", "generated-assets", "sample-player.glb"), Buffer.from("base-glb"));
+  await writeFile(path.join(fixture, "public", "generated-assets", "sample-player-idle.glb"), Buffer.from("idle-glb"));
+  await writeFile(path.join(fixture, "asset-jobs.json"), `${JSON.stringify({
+    jobId: "job-test",
+    status: "running",
+    updatedAt: new Date().toISOString(),
+    jobs: [
+      { id: "sample-player", label: "Sample Player", status: "success", progress: 100, rig: { status: "success", progress: 100, animationClips: [{ name: "idle", status: "success" }, { name: "walk", status: "success" }] } },
+      { id: "sample-prop", label: "Sample Prop", status: "running", progress: 37 }
+    ]
+  }, null, 2)}\n`);
+  await writeFile(path.join(fixture, "asset_manifest.json"), `${JSON.stringify({
+    version: 2,
+    assets: [{
+      id: "sample-player",
+      name: "Sample Player",
+      model: { url: "/generated-assets/sample-player.glb" },
+      actions: {
+        idle: { url: "/generated-assets/sample-player-idle.glb" },
+        walk: { url: "/generated-assets/sample-player-walk.glb" }
+      }
+    }]
+  }, null, 2)}\n`);
+
+  run("sync-regeneration-status.mjs");
+  let status = JSON.parse(await readFile(path.join(fixture, "public", "regeneration-status.json"), "utf8"));
+  const player = status.items.find((item) => item.id === "sample-player");
+  const prop = status.items.find((item) => item.id === "sample-prop");
+  assert.equal(player.status, "ready");
+  assert.equal(player.clips.find((clip) => clip.name === "idle").status, "ready");
+  assert.equal(player.clips.find((clip) => clip.name === "walk").status, "running");
+  assert.equal(player.clips.find((clip) => clip.name === "walk").progress, 99);
+  assert.equal(prop.status, "running");
+  assert.equal(prop.progress, 37);
+  run("validate-regeneration-preview.mjs");
+
+  await writeFile(path.join(fixture, "public", "generated-assets", "sample-player-walk.glb"), Buffer.from("walk-glb"));
+  run("sync-regeneration-status.mjs");
+  status = JSON.parse(await readFile(path.join(fixture, "public", "regeneration-status.json"), "utf8"));
+  assert.equal(status.items.find((item) => item.id === "sample-player").clips.find((clip) => clip.name === "walk").status, "ready");
+  run("validate-regeneration-preview.mjs");
+
+  const html = await readFile(path.join(fixture, "public", "regeneration.html"), "utf8");
+  assert.match(html, /regeneration-preview\.bundle\.js\?v=[a-f0-9]{12}/);
+  assert.doesNotMatch(html, /\?v=template/);
+  const leftovers = (await readdir(path.join(fixture, "public"))).filter((name) => name.includes(".tmp"));
+  assert.deepEqual(leftovers, []);
+  process.stdout.write(`${JSON.stringify({ status: "ok", fixture, assertions: 13 }, null, 2)}\n`);
+} finally {
+  if (!process.env.KEEP_REGENERATION_TEST_FIXTURE) await rm(fixture, { recursive: true, force: true });
+}
