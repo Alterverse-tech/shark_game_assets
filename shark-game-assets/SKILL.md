@@ -273,6 +273,14 @@ Prefer this semantic registry shape for new or rewritten manifests:
         "rigType": "biped",
         "animationSource": "tripo_retarget_clips"
       },
+      "orientation": {
+        "nativeForwardAxis": "+X",
+        "canonicalForwardAxis": "+Z",
+        "calibrationYawDegrees": -90,
+        "auditMethod": "mesh-bones-and-render",
+        "sourceHash": "sha256:<glb-content-hash>",
+        "status": "VISUALLY_VERIFIED"
+      },
       "actions": {
         "idle": {
           "url": "/generated-assets/idle-task/model.glb",
@@ -312,6 +320,7 @@ Manifest authoring rules:
 - `actions` is the primary action registry. Runtime code should resolve `walk` from `asset.actions.walk.url`, `idle` from `asset.actions.idle.url`, and so on.
 - `bindings` maps game slots to asset ids. Prefer `manifest.bindings.player` over searching for the first asset with `role: "player"` when a binding exists.
 - `role` and `gameplayRole` should describe game semantics such as `player`, `boss`, `npc`, `collectible`, or `hazard`. `assetKind` should describe asset form such as `character`, `creature`, `prop`, `vehicle`, or `environment`.
+- `orientation` records the independently audited native visual forward axis and the one-time calibration into the game's canonical forward axis. Do not write `VISUALLY_VERIFIED` or `ACCEPTED` unless the mandatory orientation gate below has passed at that level.
 - Keep legacy `url`, `animationClips`, `animations`, and `animationSource` fields readable for backward compatibility, but normalize them into `model` and `actions` at runtime before use.
 
 Runtime resolver pattern for backward compatibility:
@@ -366,7 +375,7 @@ function tick(delta) {
 
 ## Runtime integration rules
 
-- Normalize every loaded GLB with `THREE.Box3().setFromObject()`: scale to target size, center horizontally, place the bottom at `y = 0`, and apply a stable facing offset.
+- Normalize every loaded GLB with `THREE.Box3().setFromObject()`: scale to target size, center horizontally, place the bottom at `y = 0`, and apply the independently audited orientation calibration. Never guess a facing offset from engine convention or a previous asset.
 - Separate visuals from gameplay hitboxes. Collision should use stable gameplay dimensions, not raw model bounds or mesh origins.
 - If `manifest.assets` contains `rigged`, `rigType`, `actions`, `animationClips`, `animations`, or `animationSource`, inspect the loaded `gltf.animations` before claiming native animation exists.
 - For `animationSource: "tripo_retarget_clips"` or a character/creature asset with `actions`/`animationClips`, load the visible main model from `model.url` or legacy `url`, then separately load each action GLB from `actions.<name>.url` or legacy `animationClips[].url`. The action GLB scene is normally only a clip source and should not be added to the game scene.
@@ -378,9 +387,71 @@ function tick(delta) {
 - If a retarget clip does not bind to the main model's skeleton, fall back to directly displaying the action GLB scene for that state or to a clearly labeled procedural/group fallback. Do not silently claim the main rig is playing that retarget clip.
 - Add a short `README.md` section named `3D Asset Pipeline` or `3D 素材流水线` describing which assets were generated, which route was used, and what runtime animation source is used.
 
+## Mandatory asset-integration quality gates
+
+Treat this as an extensible, numbered set of blocking quality gates. Add future gates here for other cross-game asset contracts such as scale, pivot, root motion, collision proxies, animation semantics, or material compatibility. A gate applies automatically when its asset type is present; do not ask the end user to opt into it or choose technical calibration values that the asset can be inspected to determine.
+
+### Gate 1 — Character forward-axis and orientation acceptance
+
+Character orientation is an asset-integration and movement-kinematics contract. It is not a cosmetic guess and it does not pass merely because controller math is internally consistent.
+
+1. Never assume that a GLB visually faces `+Z`, `-Z`, `+X`, or `-X` from Three.js conventions, generation prompts, filenames, rig type, or a previous asset.
+2. Independently determine the native visual forward axis for every player, NPC, enemy, or other direction-sensitive model. Inspect, in priority order:
+   - explicit trusted asset metadata;
+   - face/head geometry, feet, torso, accessories, and bind-pose/bone layout;
+   - a multi-angle rendered preview;
+   - a temporary in-game axis/debug-arrow view.
+3. Do not infer forward solely from the T-pose left/right axis. Use at least one facial or rendered cue because a valid left/right axis still leaves two opposite forward directions.
+4. Record the audit in `asset_manifest.json` under `asset.orientation`, including `nativeForwardAxis`, `canonicalForwardAxis`, `calibrationYawDegrees`, `auditMethod`, `sourceHash`, and `status`.
+5. Invalidate the audit whenever the base GLB content hash changes. Regeneration, re-rigging, mesh replacement, or export-axis changes require a new audit even when the asset id and filename are unchanged.
+6. Separate gameplay and visuals:
+   - the gameplay root owns position, collision, movement velocity, and movement yaw;
+   - the visual model is a child and receives exactly one asset-specific calibration rotation;
+   - do not distribute compensating rotations across movement, camera, animation, and mesh code.
+7. Derive gameplay yaw from the actual normalized horizontal velocity, not directly from the pressed key or an animation state:
+
+```js
+const movementYaw = Math.atan2(actualVelocity.x, actualVelocity.z);
+gameplayRoot.rotation.y = movementYaw;
+visualRoot.rotation.y = auditedCalibrationYaw;
+```
+
+8. Verify the composed visual forward direction against actual horizontal velocity for forward, backward, left, right, and all four diagonals:
+
+```js
+const worldVisualForward = auditedNativeForward
+  .clone()
+  .applyQuaternion(visualRoot.quaternion)
+  .applyQuaternion(gameplayRoot.quaternion)
+  .normalize();
+
+const expectedDirection = actualVelocity.clone().setY(0).normalize();
+assert(worldVisualForward.dot(expectedDirection) >= 0.95);
+```
+
+9. Protect test independence. The expected native-forward vector must come from the manifest audit or an independent rendered/geometry inspection. Never use the same unverified production constant as both the implementation input and the test oracle. Such a test proves only mathematical self-consistency and is a false positive for visual orientation.
+10. Perform at least one rendered acceptance check after integration:
+    - pressing forward in a chase-camera view visibly shows the character's back;
+    - rotating the camera and pressing forward moves along the new camera direction;
+    - face, torso, feet, movement velocity, and active walk/run animation agree;
+    - capture a screenshot or short frame sequence as evidence.
+11. Prefer the existing asset preview or an offline/local renderer for this check. If interactive browser/computer control requires authorization and is unavailable, use another independent rendered inspection path when possible. Do not bypass the gate by silently reclassifying a vector test as visual verification.
+12. Use exactly one of these verification states:
+    - `UNVERIFIED`: the native visual forward axis has not been independently established.
+    - `AXIS_AUDITED`: the native forward axis was established from asset inspection.
+    - `MATH_VERIFIED`: the audited axis and actual movement pass all direction-vector tests.
+    - `VISUALLY_VERIFIED`: rendered movement was inspected, but mathematical coverage is incomplete.
+    - `ACCEPTED`: both mathematical direction coverage and rendered acceptance passed.
+13. Report the verification level exactly. If rendering cannot be verified, say `Math verification passed against an audited axis; rendered acceptance is pending.` Never report `character orientation passed`, `visual verification passed`, or `ACCEPTED` from mathematical self-consistency alone.
+14. Keep this gate invisible to the end user during normal successful generation. Only surface it when the audit is blocked, the asset is ambiguous after inspection, or acceptance fails and requires a user decision beyond the supplied asset/game scope.
+
 ## Third-Person Escape Room Game Generation
 
 Use the bundled subskill [third-person-escape-room-game](subskills/third-person-escape-room-game.md) when the user asks to build, regenerate, or substantially revise a browser-runnable third-person top-down 3D escape room game from a supplied script. Load that subskill before planning, coding, asset selection, control implementation, collision work, or playtest reporting for this game type.
+
+## Mandatory Final Game QA, Fix, And Acceptance
+
+Whenever this skill builds, regenerates, or substantially revises a playable browser game, load and complete [game-final-playtest-fix-acceptance](subskills/game-final-playtest-fix-acceptance.md) after implementation, asset integration, and the runnable build are ready. Treat it as a blocking completion gate: run the independent senior QA pass, preserve the initial issue report, repair defects, retest, and emit one of its exact acceptance statuses before declaring the game complete. Do not run this gate for an asset-only request that does not create or revise playable game behavior.
 
 ## Existing GLB animation clip generation
 
