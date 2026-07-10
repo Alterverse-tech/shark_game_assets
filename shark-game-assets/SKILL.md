@@ -1,6 +1,6 @@
 ---
 name: shark-game-assets
-description: Generate and wire key GLB assets for Codex- or Claude Code-built 3D web games, and publish completed static game builds to a Shark Coding Agent portal when the user chooses. Use when a Three.js, WebGL, or 3D mini game has recognizable entities such as a player, character, enemy, collectible, vehicle, weapon, hazard, boss, mascot, or key prop, or when the user asks to upload, publish, share, or add the finished game to the Shark portal/showcase.
+description: Generate, rig, preview, and wire key GLB assets for Codex- or Claude Code-built 3D web games, with a local live preview/progress page created by default for asset work, and publish completed static game builds to a Shark Coding Agent portal when the user chooses. Use when a Three.js, WebGL, or 3D mini game has recognizable entities such as a player, character, enemy, collectible, vehicle, weapon, hazard, boss, mascot, or key prop, or when the user asks to generate, animate, integrate, upload, publish, share, or add game assets or a finished game to the Shark portal/showcase.
 ---
 
 # Shark Game Assets
@@ -20,6 +20,8 @@ Before taking task actions with this skill, perform a best-effort self-update ch
 
 ## Required behavior
 
+- For every task that generates, regenerates, rigs, animates, or integrates GLB assets, create or restore the canonical local preview/progress page by default, even when the user did not ask for it. Make the current-run plan and preview setup the first local asset action after locating the workspace, before token/authorization checks, remote calls, or GLB integration, then keep status synchronized until the task finishes.
+- Skip the default preview only for publish-only requests, help/explanation-only requests, readiness-only or other read-only inspection that does not generate/integrate asset files, or when the user explicitly declines a preview page.
 - If the game prompt contains explicit or implicit entities, such as a player, character, enemy, collectible, vehicle, weapon, obstacle, boss, mascot, key prop, or environment object, GLB generation is a required stage when the tool is available.
 - Generate only 1-3 key assets by default. Prioritize the player/main character first, then the gameplay-critical enemy, collectible, vehicle, hazard, or key prop. Do not generate decorative filler.
 - When the user explicitly asks to regenerate a game and says not to reuse historical assets, do not reuse existing GLBs from `asset_manifest.json`; create fresh stable ids, usually with a timestamp or run suffix, and pass `force: true`.
@@ -34,9 +36,9 @@ Before taking task actions with this skill, perform a best-effort self-update ch
 - After a game is complete and locally verified, you may ask once whether the user wants to publish it to their Shark portal. Never upload automatically or infer consent from asset-generation authorization.
 - Portal publishing requires a separate `SHARK_PORTAL_TOKEN` and explicit authorization to send the built static files and that token to `SHARK_PORTAL_URL`. Never reuse `GAME_ASSETS_API_TOKEN` for publishing.
 
-## Game Regeneration With Live Preview
+## Default Live Preview For Asset Tasks
 
-When the user asks, in Chinese or English, for the game to be regenerated with new entity character/prop models and says the generation process should dynamically show those models, follow this workflow:
+For every task that generates, regenerates, rigs, animates, or integrates model/clip GLBs, follow this workflow by default whether or not the user mentions a preview. Treat the preview as the first normal asset-work stage, not optional polish.
 
 - Before taking preview actions, read [references/regeneration-preview.md](references/regeneration-preview.md). Its plan/status separation, local-file readiness gate, action GLB loading chain, cache handling, and localhost listener checks are normative.
 - Use the bundled deterministic scripts instead of rewriting project-specific synchronization logic:
@@ -46,11 +48,11 @@ node <skill-dir>/scripts/setup-regeneration-preview.mjs --cwd "$(pwd)"
 node <skill-dir>/scripts/sync-regeneration-status.mjs --cwd "$(pwd)" --watch --interval 1000
 ```
 
-- Create `regeneration-plan.json` before generation with a fresh `runId`, `startedAt`, every base asset, and every expected semantic action. The plan describes intent; job files/manifests describe facts; `public/regeneration-status.json` is derived output; the viewer only consumes derived status.
+- Create `regeneration-plan.json` for every asset task with a fresh `runId`, `startedAt`, every base asset, and every expected semantic action. The plan describes intent; job files/manifests describe facts; `public/regeneration-status.json` is derived output; the viewer only consumes derived status.
 
-- Treat the request as an explicit regeneration request: generate fresh GLBs and do not wire any historical GLB into the regenerated game.
-- Treat the regeneration preview website as a first-class subtask of game model generation, not as a final optional polish step. The overall game generation should be organized as: preview website subtask, model generation subtask, `asset_manifest.json`/status update subtask, then game integration subtask.
-- After token presence and remote-call authorization are satisfied, restore or create the preview website before the first remote asset generation call. The user should be able to open `/regeneration.html` while models are still pending/running.
+- Only when the user explicitly requests regeneration without historical reuse, generate fresh stable ids, pass `force: true`, and prevent old GLBs from re-entering the plan, status, manifest, or game.
+- Treat the preview website as a first-class subtask of asset work. Organize generation tasks as: preview/plan setup, model or action generation, status/manifest update, then game integration.
+- The setup and synchronizer are local-only and use no token, so restore or create the preview before checking token presence or remote-call authorization. If a later remote gate blocks progress, leave the page available with pending status. For integration-only work with existing local GLBs, create the preview before modifying game integration code.
 - Keep this preview website lightweight and standardized so it does not materially slow the game generation task. Copy the template, write/update JSON, bundle the preview script, and start or reuse the local static/dev server; do not redesign the page or add custom UI unless the user explicitly asks.
 - Treat the bundled template files in `templates/regeneration/` as the canonical source of truth for `/regeneration.html`, not as loose inspiration. In the blood moon castle project this canonical page is served as `http://127.0.0.1:4173/regeneration.html`; if the dev server uses a different port, keep the same path and UI structure. Do not scrape or download the localhost URL at runtime; that URL is only a served instance of the bundled template.
 - When a project is missing this page, or when the page has drifted from the contract, run `setup-regeneration-preview.mjs`. It restores the canonical HTML/source, initializes missing plan/status files, bundles the viewer, and writes a content-hash cache buster into the script URL.
@@ -58,27 +60,20 @@ node <skill-dir>/scripts/sync-regeneration-status.mjs --cwd "$(pwd)" --watch --i
 - Preserve or recreate the same visual contract: dark `#11141b`/`#191d25` page, 360px left column on desktop, responsive two-row mobile layout, compact 8px-radius item buttons, progress bars with `#e5b76c`, green ready border, amber active state, right-side full-height viewer, bottom overlay status panel.
 - Preserve or recreate the same viewer behavior in `src/regeneration-preview.js`: poll `./regeneration-status.json` every 2 seconds with cache disabled, render base and action GLBs as separate left-side buttons with status/progress/filename, disable buttons until `runtimeUrl` exists, load completed GLBs with `GLTFLoader`, use `OrbitControls`, normalize each model to fit the viewer, auto-load the first ready action or model, and rotate the current model slowly.
 - For action previews, load the visible base model first, load the action GLB only as an `AnimationClip` source, and play it through one mixer on the base root. If the clip cannot bind the base skeleton, directly display the action GLB scene and state that fallback in the status overlay.
-- Do not redesign, theme, simplify, or move this page during game regeneration unless the user explicitly requests a different regeneration UI. If the page already exists, reuse it and only update data/status; if it is missing, rebuild it to this canonical contract before generation starts.
+- Do not redesign, theme, simplify, or move this page during asset work unless the user explicitly requests a different preview UI. If the page already exists, reuse it and update its current-run plan/status; if it is missing, rebuild it to this canonical contract before asset generation, animation, or integration starts.
 - After editing or regenerating the page, run the bundled validator before claiming it is ready. It checks the DOM/viewer contract, plan/status schemas, action slots, safe runtime paths, and every ready GLB on disk:
 
 ```bash
 node <skill-dir>/scripts/validate-regeneration-preview.mjs --cwd "$(pwd)"
 ```
-- Suggested static check:
-
-```bash
-rg -n 'id="list"|id="stage"|id="status"|class="app"|regeneration-preview\.bundle\.js' public/regeneration.html
-rg -n 'regeneration-status\.json|new GLTFLoader|new OrbitControls|stage\.appendChild|setInterval\\(poll, 2000\\)' src/regeneration-preview.js
-```
-
 - Back the page with derived status JSON at `public/regeneration-status.json`, containing per-asset `id`, `name`, `role`, `status`, `progress`, `runtimeUrl`, `clips`, and `error`. Keep the synchronizer running throughout generation so the page can poll and refresh without browser automation.
 - The status JSON should make semantic model state visible, not just raw file completion. For animated character/creature assets, list the base model and each semantic action GLB separately or expose them in `clips`, for example player base, player `idle`, player `walk`, boss base, boss `idle`, boss `walk`. This helps users and Codex verify that the correct action GLB is used at the correct gameplay state.
 - During generation, derive each status item from `pending` to `running` to `ready` or `failed`, with progress and a clear error if one stage fails. Server-side `success` without a local runtime GLB stays `running` at no more than 99%; only a non-empty file under `public/generated-assets/` may become `ready`.
 - As each GLB completes, copy it into the runtime `public/generated-assets/` tree, set `runtimeUrl`, and make it available in the live preview before the full batch is complete.
-- On completion, update `asset_manifest.json`, the game asset constants/import paths, and any asset preview page so they list only the freshly generated assets actually used by the latest game.
+- On completion, update `asset_manifest.json`, game asset constants/import paths, and the preview status so they list the assets/actions actually used by the current task. For explicit no-reuse regeneration, this set must contain only fresh current-run GLBs.
 - Keep primitive fallbacks in the game for failed slots, but do not silently replace a failed regenerated asset with an older GLB.
 
-Suggested live-preview subtask checklist:
+Default asset-preview checklist:
 
 1. Restore `public/regeneration.html`, `src/regeneration-preview.js`, `public/regeneration-status.json`, and `public/regeneration-preview.bundle.js` from the template contract.
 2. Create `regeneration-plan.json` with a fresh run identity and every base/action slot, then start `sync-regeneration-status.mjs --watch`.
@@ -162,15 +157,29 @@ Natural-language trigger examples that do not explicitly name the skill:
 For asset generation or integration tasks, prefer MCP tools named `mcp__game_assets__*` when available. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations. Skip this workflow for a publish-only request.
 
 1. Run `pwd` if you do not already know the current workspace path.
-2. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause the whole game-generation or asset-integration workflow until they provide it. Do not build a procedural Three.js fallback game or continue with primitive stand-ins while waiting.
-3. Confirm the user has authorized sending `GAME_ASSETS_API_TOKEN` to the configured asset API host for readiness/generate/animate. If authorization is missing or ambiguous, ask for confirmation and pause the workflow.
-4. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
+2. Write the current task's actual `regeneration-plan.json`, then create/restore the preview, reset derived status for that plan, and start the synchronizer before checking the token, requesting remote authorization, making any asset API call, or changing integration code:
+
+```bash
+node <skill-dir>/scripts/setup-regeneration-preview.mjs \
+  --cwd "$(pwd)" \
+  --plan regeneration-plan.json \
+  --reset-status
+node <skill-dir>/scripts/sync-regeneration-status.mjs \
+  --cwd "$(pwd)" \
+  --watch \
+  --interval 1000
+```
+
+   Start or reuse a local server and provide `/regeneration.html` early when practical. For an integration-only task with existing local GLBs, populate the plan from `asset_manifest.json`, run the same setup/synchronizer, and make existing base/action GLBs previewable before changing integration code. These local preview actions do not send `GAME_ASSETS_API_TOKEN` anywhere.
+3. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause remote generation or asset integration until they provide it; leave the preview page in its pending state. Do not build a procedural Three.js fallback game or continue with primitive stand-ins while waiting.
+4. Confirm the user has authorized sending `GAME_ASSETS_API_TOKEN` to the configured asset API host for readiness/generate/animate. If authorization is missing or ambiguous, ask for confirmation and pause the remote workflow while leaving the local preview available.
+5. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
 
 ```bash
 node <skill-dir>/scripts/game-assets-mcp.mjs readiness --cwd "$(pwd)"
 ```
 
-5. Generate the selected asset set. By default generate 1-3 assets (batch max 4). For explicit game-regeneration requests, follow the quantity limits above: 1-5 Gemini-Tripo key entity models, and optionally 3-10 Tripo static prop models. Split into multiple generate calls when a desired set is larger than the current client/API batch cap. Pass parameters as one JSON object:
+6. Generate the selected asset set. By default generate 1-3 assets (batch max 4). For explicit game-regeneration requests, follow the quantity limits above: 1-5 Gemini-Tripo key entity models, and optionally 3-10 Tripo static prop models. Split into multiple generate calls when a desired set is larger than the current client/API batch cap. Pass parameters as one JSON object:
 
 ```bash
 node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
@@ -185,9 +194,10 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
    - On `gemini_reference`, character/creature assets are automatically rigged after GLB generation. Prefer `animationClips` when present; if Tripo retarget failed, expect main-GLB fallback fields `animations: ["Idle", "Walk"]` and `animationSource: "procedural_native_clips"`.
    - `force`: only when the user explicitly asked to regenerate assets.
    - The command blocks while polling the remote job (typically 1-3 minutes per batch) and prints a JSON result; exit code 1 means the batch failed.
-6. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth.
-7. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`. Treat the manifest as a semantic registry: choose assets by `bindings`, `id`, or `role`, and choose animations by `actions.<name>.url` or legacy `animationClips[].name`/`preset`, never by guessing file names or folders.
-8. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
+7. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth and keep the preview synchronizer running until every successful local GLB/action appears.
+8. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`. Treat the manifest as a semantic registry: choose assets by `bindings`, `id`, or `role`, and choose animations by `actions.<name>.url` or legacy `animationClips[].name`/`preset`, never by guessing file names or folders.
+9. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
+10. Run `validate-regeneration-preview.mjs`, then stop the synchronizer normally after final status and manifest are stable.
 
 ## Publish a completed game to the Shark portal
 

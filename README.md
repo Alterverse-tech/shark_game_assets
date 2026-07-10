@@ -68,7 +68,7 @@ For explicit game regeneration requests:
 - Secondary static props: use the Tripo branch, `3-10` models total when those props materially improve gameplay.
 - If the user says not to reuse historical assets, generate fresh IDs and do not wire old GLBs back into the regenerated game.
 
-## Live Regeneration Preview Template
+## Default Live Asset Preview
 
 This repo includes a canonical live-preview template at:
 
@@ -76,7 +76,7 @@ This repo includes a canonical live-preview template at:
 shark-game-assets/templates/regeneration/
 ```
 
-Use it when a game regeneration process needs to show models dynamically as they complete. The template provides:
+The skill uses it by default for every generation, regeneration, rigging, animation, or GLB integration task, even when the user does not explicitly request a preview. Publish-only, explanation-only, read-only inspection, and explicit opt-out are excluded. The template provides:
 
 - `public/regeneration.html`: fixed UI structure with a left progress list and right Three.js model viewer.
 - `src/regeneration-preview.js`: polling viewer logic using `GLTFLoader` and `OrbitControls`, including separate base/action GLB buttons and action-clip playback on the base rig.
@@ -86,13 +86,13 @@ Use it when a game regeneration process needs to show models dynamically as they
 Set up and run the stable preview pipeline with:
 
 ```bash
-node shark-game-assets/scripts/setup-regeneration-preview.mjs --cwd "$PWD"
-# Edit regeneration-plan.json before generation.
+# Write the current task's regeneration-plan.json first.
+node shark-game-assets/scripts/setup-regeneration-preview.mjs --cwd "$PWD" --plan regeneration-plan.json --reset-status
 node shark-game-assets/scripts/sync-regeneration-status.mjs --cwd "$PWD" --watch --interval 1000
 node shark-game-assets/scripts/validate-regeneration-preview.mjs --cwd "$PWD"
 ```
 
-The synchronizer reads root and `.asset-batches/*` job/manifest files, writes status atomically, and marks an asset ready only after its GLB exists under `public/generated-assets`.
+This local preview setup is the first asset action after locating the workspace; it runs before token/authorization checks or remote calls. The synchronizer reads root and `.asset-batches/*` job/manifest files, writes status atomically, and marks an asset ready only after its GLB exists under `public/generated-assets`.
 
 The served page should remain `/regeneration.html`. In the blood moon castle project this is the page seen at `http://127.0.0.1:4173/regeneration.html`, but the source of truth is the bundled template, not a scraped localhost page.
 

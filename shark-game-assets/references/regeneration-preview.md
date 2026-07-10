@@ -1,6 +1,6 @@
 # Stable regeneration preview
 
-Use this reference when a game asset run needs `/regeneration.html`, live progress, base-model previews, or semantic action GLB previews.
+Use this reference for every task that generates, regenerates, rigs, animates, or integrates GLB assets. The skill creates `/regeneration.html` by default even when the user does not explicitly request live progress. Skip it only for publish-only work, help/explanation-only work, read-only checks without asset-file changes, or explicit user opt-out.
 
 ## Contents
 
@@ -28,7 +28,7 @@ Never make the HTML discover model files by scanning directories. The synchroniz
 
 ## 2. Plan contract
 
-Create a fresh plan before generation. Use a fresh `runId` and `startedAt` whenever the user explicitly requests regeneration without historical reuse.
+Create a fresh plan before every asset generation, animation, rigging, or integration task. Always use a fresh `runId` and `startedAt` so old status cannot leak into the current task. When the user explicitly requests regeneration without historical reuse, also use fresh asset ids and exclude old GLBs from every source of truth.
 
 ```json
 {
@@ -133,20 +133,22 @@ Use a monotonically increasing request id so a slow prior GLB load cannot replac
 
 ## 6. Setup and run commands
 
-```bash
-node <skill-dir>/scripts/setup-regeneration-preview.mjs --cwd "$(pwd)"
-```
-
-Edit `regeneration-plan.json`, then start the local-only synchronizer before the first generation call:
+Write the current task's `regeneration-plan.json` first, then initialize the local preview from that plan and start the synchronizer:
 
 ```bash
+node <skill-dir>/scripts/setup-regeneration-preview.mjs \
+  --cwd "$(pwd)" \
+  --plan regeneration-plan.json \
+  --reset-status
 node <skill-dir>/scripts/sync-regeneration-status.mjs \
   --cwd "$(pwd)" \
   --watch \
   --interval 1000
 ```
 
-For split batches, write each client run under `.asset-batches/<batch-name>`; the watcher discovers them automatically. These preview scripts do not use tokens and make no remote calls.
+Do this immediately after locating the workspace and before token checks, remote authorization, readiness/generate/animate calls, or integration code changes. These preview scripts are local-only, use no token, and make no remote calls. If a remote gate later blocks the task, keep the page available with pending status.
+
+For split batches, write each client run under `.asset-batches/<batch-name>`; the watcher discovers them automatically.
 
 After assets finish, keep the watcher running until the final manifest and GLBs are in place, then stop it normally.
 

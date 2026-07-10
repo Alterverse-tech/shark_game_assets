@@ -19,6 +19,13 @@ function run(script, args = []) {
 }
 
 try {
+  const skill = await readFile(path.resolve(scriptDir, "../SKILL.md"), "utf8");
+  assert.match(skill, /For every task that generates, regenerates, rigs, animates, or integrates GLB assets, create or restore the canonical local preview\/progress page by default/);
+  assert.match(skill, /Skip the default preview only for publish-only requests, help\/explanation-only requests, readiness-only or other read-only inspection/);
+  const assetWorkflow = skill.slice(skill.indexOf("## Asset tool workflow"), skill.indexOf("## Publish a completed game"));
+  assert.ok(assetWorkflow.indexOf("setup-regeneration-preview.mjs") < assetWorkflow.indexOf("game-assets-mcp.mjs readiness"), "preview setup must precede readiness in the asset workflow");
+  assert.ok(assetWorkflow.indexOf("setup-regeneration-preview.mjs") < assetWorkflow.indexOf("Confirm `GAME_ASSETS_API_TOKEN`"), "preview setup must precede the token gate in the asset workflow");
+
   const setupArgs = process.env.ESBUILD_BIN_PATH ? ["--esbuild", process.env.ESBUILD_BIN_PATH] : [];
   run("setup-regeneration-preview.mjs", setupArgs);
   const startedAt = new Date(Date.now() - 1000).toISOString();
@@ -79,7 +86,7 @@ try {
   assert.doesNotMatch(html, /\?v=template/);
   const leftovers = (await readdir(path.join(fixture, "public"))).filter((name) => name.includes(".tmp"));
   assert.deepEqual(leftovers, []);
-  process.stdout.write(`${JSON.stringify({ status: "ok", fixture, assertions: 13 }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ status: "ok", fixture, assertions: 17 }, null, 2)}\n`);
 } finally {
   if (!process.env.KEEP_REGENERATION_TEST_FIXTURE) await rm(fixture, { recursive: true, force: true });
 }
