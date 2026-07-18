@@ -5,9 +5,9 @@ import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER_INFO = { name: "game_assets", version: "0.3.1" };
+const SERVER_INFO = { name: "game_assets", version: "0.3.2" };
 
-const DEFAULT_API_BASE = "http://54.81.110.182:3001";
+const DEFAULT_API_BASE = "https://studio.13-216-49-19.sslip.io";
 const API_BASE = (process.env.GAME_ASSETS_API_URL || DEFAULT_API_BASE).replace(/\/$/, "");
 const API_TOKEN = (process.env.GAME_ASSETS_API_TOKEN || "").trim();
 

@@ -39,6 +39,8 @@ npx skills add https://github.com/Alterverse-tech/shark_game_assets \
 
 After installation, the skill becomes available to compatible coding agents on your machine.
 
+Documentation and downloads: https://studio.13-216-49-19.sslip.io/generated-assets/site/
+
 ## Authentication
 
 Shark Game Assets uses a remote asset-generation service and requires an API token.
@@ -50,6 +52,8 @@ export GAME_ASSETS_API_TOKEN="<your-token>"
 ```
 
 To make the token available across terminal sessions, add it to your shell configuration file.
+
+The client uses `https://studio.13-216-49-19.sslip.io` by default. Set `GAME_ASSETS_API_URL` only when overriding that service. Before readiness, generation, or animation calls, explicitly authorize sending `GAME_ASSETS_API_TOKEN` to the configured service; the agent must never print the token.
 
 ## Usage
 

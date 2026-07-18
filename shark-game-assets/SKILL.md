@@ -93,7 +93,7 @@ Use `auto` only when you are comfortable with the server choosing from the promp
 
 ## Environment
 
-The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks to the default remote asset API at `http://54.81.110.182:3001`.
+The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks to the default remote asset API at `https://studio.13-216-49-19.sslip.io`.
 
 - `GAME_ASSETS_API_URL` — optional override for the asset API base URL
 - `GAME_ASSETS_API_TOKEN` — required per-user access token
@@ -102,7 +102,7 @@ The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs
 
 `GAME_ASSETS_API_TOKEN` is mandatory for asset API operations. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the game-generation or asset-integration workflow that needs those operations and ask the user to provide it; do not substitute procedural assets or assume generation can proceed. A publish-only workflow uses only the separate portal variables. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
 
-Token presence is not remote-call consent. Before sending `GAME_ASSETS_API_TOKEN` to the default asset service (`http://54.81.110.182:3001`) or to a custom `GAME_ASSETS_API_URL`, confirm that the user authorizes using that token with that service for readiness/generate/animate. If authorization is absent or ambiguous, ask a concise clarification such as: "I need to use `GAME_ASSETS_API_TOKEN` to call `http://54.81.110.182:3001` for asset readiness/generation/animation. Please confirm that this is authorized." Pause the asset workflow until the user confirms.
+Token presence is not remote-call consent. Before sending `GAME_ASSETS_API_TOKEN` to the default asset service (`https://studio.13-216-49-19.sslip.io`) or to a custom `GAME_ASSETS_API_URL`, confirm that the user authorizes using that token with that service for readiness/generate/animate. If authorization is absent or ambiguous, ask a concise clarification such as: "I need to use `GAME_ASSETS_API_TOKEN` to call `https://studio.13-216-49-19.sslip.io` for asset readiness/generation/animation. Please confirm that this is authorized." Pause the asset workflow until the user confirms.
 
 If the remote call is blocked by policy because it would send the token to an external host, explain that authorization is required and ask the user to confirm or provide a different approved asset service URL. Do not continue by creating a local procedural placeholder version unless the user explicitly changes scope and asks for a non-GLB prototype; in that case, clearly state that `shark-game-assets` GLB generation has not been completed.
 
