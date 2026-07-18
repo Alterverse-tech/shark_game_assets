@@ -2,6 +2,24 @@
 
 # Shark Game Assets
 
+
+
+## Installation
+
+Install the skill globally using the [Skills CLI](https://skills.sh):
+
+```
+npx skills add https://github.com/Alterverse-tech/shark_game_assets \
+  --skill shark-game-assets \
+  -g
+```
+
+
+## Documentation and downloads: 
+https://studio.13-216-49-19.sslip.io/generated-assets/site/
+
+<img width="2390" height="1496" alt="image" src="https://github.com/user-attachments/assets/8cfaee9a-f5fa-4aaa-a948-1d3a37960f31" />
+
 > **Generate production-ready 3D game assets without leaving your coding workflow.**
 
 `shark-game-assets` is an agent skill for generating game-ready `.glb` assets while building Three.js and WebGL games.
@@ -38,8 +56,6 @@ npx skills add https://github.com/Alterverse-tech/shark_game_assets \
 ```
 
 After installation, the skill becomes available to compatible coding agents on your machine.
-
-Documentation and downloads: https://studio.13-216-49-19.sslip.io/generated-assets/site/
 
 ## Authentication
 
