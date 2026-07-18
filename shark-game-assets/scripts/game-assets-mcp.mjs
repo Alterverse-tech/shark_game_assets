@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 // Thin MCP client: speaks MCP (JSON-RPC over stdio) to the host CLI, and plain HTTPS
 // to the remote asset-generation API. No local repo dependency, no API keys on the user machine.
-import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access, stat } from "node:fs/promises";
 import path from "node:path";
 
 const PROTOCOL_VERSION = "2024-11-05";
-const SERVER_INFO = { name: "game_assets", version: "0.3.2" };
+const SERVER_INFO = { name: "game_assets", version: "0.4.0" };
 
 const DEFAULT_API_BASE = "https://studio.13-216-49-19.sslip.io";
 const API_BASE = (process.env.GAME_ASSETS_API_URL || DEFAULT_API_BASE).replace(/\/$/, "");
-const API_TOKEN = (process.env.GAME_ASSETS_API_TOKEN || "").trim();
 
 const POLL_INTERVAL_MS = 3000;
 const GENERATE_TIMEOUT_MS = 840000;
@@ -26,7 +25,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "check_game_asset_generation_readiness",
     description:
-      "Check whether the current project can generate 3D game assets. Pass cwd as the absolute current project directory. Reports output paths, remote API reachability, Tripo budget, and Gemini route readiness.",
+      "Check whether the current project can generate 3D game assets. Pass cwd as the absolute current project directory. Reports output paths and route availability without exposing provider credentials or account details.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -151,7 +150,7 @@ if (cliCommand === "readiness" || cliCommand === "generate" || cliCommand === "a
       process.exit(result && result.status === "failed" ? 1 : 0);
     })
     .catch((error) => {
-      process.stdout.write(`${JSON.stringify({ status: "failed", errors: [error instanceof Error ? error.message : String(error)] }, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify({ status: "failed", errors: [publicErrorMessage(error)] }, null, 2)}\n`);
       process.exit(1);
     });
 } else {
@@ -192,7 +191,7 @@ function processInputBuffer() {
     inputBuffer = inputBuffer.slice(parsed.bytesRead);
     handleMessage(parsed.message).catch((error) => {
       if (parsed.message && Object.prototype.hasOwnProperty.call(parsed.message, "id")) {
-        writeError(parsed.message.id, -32000, error instanceof Error ? error.message : String(error));
+        writeError(parsed.message.id, -32000, publicErrorMessage(error));
       }
     });
   }
@@ -255,9 +254,9 @@ async function checkReadiness(args) {
   const workspaceWritable = await isWritableDirectory(workspace);
   let remote;
   try {
-    remote = await apiRequest("GET", "/api/asset-jobs/readiness");
+    remote = publicReadiness(await apiRequest("GET", "/api/asset-jobs/readiness"));
   } catch (error) {
-    remote = { status: "unreachable", message: error instanceof Error ? error.message : String(error) };
+    remote = { status: "unreachable", message: publicErrorMessage(error) };
   }
 
   const status = remote.status === "ok" && workspaceWritable ? "ok" : "needs_setup";
@@ -265,7 +264,7 @@ async function checkReadiness(args) {
     status,
     workspace,
     output,
-    api: { baseUrl: API_BASE, tokenConfigured: Boolean(API_TOKEN) },
+    api: { baseUrl: API_BASE, access: "public" },
     remote,
     workspaceWritable,
     message: readinessMessage(remote, workspaceWritable)
@@ -286,61 +285,86 @@ async function generateAssets(args) {
     };
   }
 
-  // Reuse existing assets by default: a project already wired to a manifest should not silently burn credits again.
-  if (args.force !== true) {
-    const existing = await readExistingManifest(output.manifestFile);
-    if (existing && Array.isArray(existing.assets) && existing.assets.length > 0) {
-      return {
-        status: "skipped",
-        route,
-        workspace,
-        output,
-        manifest: existing,
-        skippedReason: "asset_manifest.json already has assets; pass force=true to regenerate.",
-        message: `Reused ${existing.assets.length} existing asset(s) from ${output.manifestFile}. Pass force=true to regenerate.`
-      };
-    }
-  }
-
-  const created = await apiRequest("POST", "/api/asset-jobs", {
-    gamePrompt: typeof args.gamePrompt === "string" ? args.gamePrompt : "",
-    route,
-    force: args.force === true,
-    assets
-  });
-  const jobId = created.jobId;
-  if (!jobId) throw new Error(`Asset job creation did not return a jobId: ${JSON.stringify(created)}`);
-
-  const job = await pollJobUntilDone(jobId, output);
-  if (job.status === "failed" && !hasLoadableAsset(job)) {
+  const existing = await readExistingManifest(output.manifestFile);
+  const reusable = args.force === true ? [] : await findReusableAssetIds(existing, assets, workspace);
+  const requested = assets.filter((asset) => !reusable.includes(asset.id));
+  if (requested.length === 0) {
+    const publicManifest = sanitizeProviderFields(existing);
     return {
-      status: "failed",
+      status: "skipped",
       route,
       workspace,
       output,
-      jobId,
-      errors: collectJobErrors(job),
-      message: `${route} generation failed for job ${jobId}: ${collectJobErrors(job).join("; ") || "unknown error"}`
+      manifest: publicManifest,
+      reusedAssetIds: reusable,
+      skippedReason: "Every requested asset id already has a loadable local GLB.",
+      message: `Reused ${reusable.length} requested asset(s) from ${output.manifestFile}.`
     };
   }
 
+  let effectiveRoute = route;
+  let fallback;
+  let job;
+  try {
+    job = await createAndPollAssetJob(args, requested, route, output);
+  } catch (error) {
+    if (route !== "gemini_reference" || !isGeminiFallbackError(error)) throw error;
+    fallback = { from: route, to: "tripo", reason: "reference_image_service_unavailable" };
+  }
+  if (!fallback && route === "gemini_reference" && job?.status === "failed" && !hasLoadableAsset(job) && isGeminiFallbackError(collectJobErrors(job).join(" "))) {
+    fallback = { from: route, to: "tripo", reason: "reference_image_service_unavailable" };
+  }
+  if (fallback) {
+    effectiveRoute = "tripo";
+    reportCliProgress("Reference-image route unavailable; retrying once with Tripo.");
+    job = await createAndPollAssetJob(args, normalizeAssets(requested, effectiveRoute), effectiveRoute, output);
+  }
+
+  if (job.status === "failed" && !hasLoadableAsset(job)) {
+    const errors = collectJobErrors(job);
+    return {
+      status: "failed",
+      route: effectiveRoute,
+      workspace,
+      output,
+      ...(fallback ? { fallback } : {}),
+      errors,
+      message: `${effectiveRoute} generation failed: ${errors.join("; ") || "Asset generation failed."}`
+    };
+  }
+
+  reportCliProgress("Downloading completed GLB assets.");
   const downloaded = await downloadJobAssets(job, output);
-  const manifest = buildLocalManifest(job, downloaded);
+  const generatedManifest = buildLocalManifest(job, downloaded);
+  const manifest = mergeManifests(existing, generatedManifest, args.force === true ? requested.map((asset) => asset.id) : downloaded.map((asset) => asset.id), effectiveRoute);
   await mkdir(path.dirname(output.manifestFile), { recursive: true });
   await writeFile(output.manifestFile, JSON.stringify(manifest, null, 2));
   await writeProgressFile(output.progressFile, job);
 
   return {
     status: job.status,
-    route,
+    route: effectiveRoute,
     workspace,
     output,
-    jobId,
+    ...(fallback ? { fallback } : {}),
+    ...(reusable.length ? { reusedAssetIds: reusable } : {}),
     assets: downloaded,
     manifest,
     errors: collectJobErrors(job),
-    message: summarizeGenerationResult(route, job, downloaded, output)
+    message: summarizeGenerationResult(effectiveRoute, job, downloaded, output)
   };
+}
+
+async function createAndPollAssetJob(args, assets, route, output) {
+  const created = await apiRequest("POST", "/api/asset-jobs", {
+    gamePrompt: typeof args.gamePrompt === "string" ? args.gamePrompt : "",
+    route,
+    force: args.force === true,
+    assets
+  });
+  if (!created.jobId) throw new Error("Asset job creation did not return a job id.");
+  reportCliProgress(`Submitted ${assets.length} asset(s) through ${route}.`);
+  return pollJobUntilDone(created.jobId, output);
 }
 
 async function generateRigClips(args) {
@@ -385,9 +409,8 @@ async function generateRigClips(args) {
   const baseResponse = responses.find((result) => result.downloadUrl || result.modelUrl) || responses[0] || {};
   const baseFileName = `${assetId}-rigged.glb`;
   let baseLocalUrl;
-  let baseLocalFile;
   if (baseResponse.downloadUrl) {
-    baseLocalFile = path.join(output.assetRootDir, baseFileName);
+    const baseLocalFile = path.join(output.assetRootDir, baseFileName);
     const bytes = await apiDownload(baseResponse.downloadUrl);
     await writeFile(baseLocalFile, bytes);
     baseLocalUrl = `${output.publicPath}/${baseFileName}`;
@@ -407,10 +430,7 @@ async function generateRigClips(args) {
       clipMap.set(key, {
         name,
         preset: clip.preset,
-        taskId: clip.taskId,
-        sourceUrl: clip.modelUrl,
         url: `${output.publicPath}/${fileName}`,
-        localFile: filePath,
         format: "glb",
         bytes: bytes.byteLength
       });
@@ -425,27 +445,24 @@ async function generateRigClips(args) {
     format: "glb",
     rigged: baseResponse.status === "rigged" || Boolean(baseResponse.rigType),
     rigType: baseResponse.rigType,
-    originalModelTaskId,
     source: "tripo_rig_clip",
     ...(Array.isArray(baseResponse.animations) && baseResponse.animations.length ? { animations: baseResponse.animations } : {}),
     ...(baseResponse.animationSource ? { animationSource: baseResponse.animationSource } : {}),
-    ...(baseResponse.retargetError ? { rigError: baseResponse.retargetError } : {}),
-    animationClips: [...clipMap.values()].map(({ localFile, bytes, ...clip }) => clip)
+    ...(baseResponse.retargetError ? { rigError: publicErrorMessage(baseResponse.retargetError) } : {}),
+    animationClips: [...clipMap.values()].map(({ bytes, ...clip }) => clip)
   });
 
-  const errors = responses.flatMap((response) => (response.retargetError ? [response.retargetError] : response.reason ? [response.reason] : []));
+  const errors = responses.flatMap((response) => (response.retargetError ? [response.retargetError] : response.reason ? [response.reason] : [])).map(publicErrorMessage);
   const hasProceduralFallback = Array.isArray(baseResponse.animations) && baseResponse.animations.length > 0 && baseResponse.animationSource === "procedural_native_clips";
   return {
     status: errors.length > 0 && clipMap.size === 0 && !hasProceduralFallback ? "failed" : "success",
     workspace,
     output,
-    originalModelTaskId,
     asset: {
       id: assetId,
       role,
       name: assetName,
       localUrl: baseLocalUrl,
-      localFile: baseLocalFile,
       rigType: baseResponse.rigType,
       ...(Array.isArray(baseResponse.animations) && baseResponse.animations.length ? { animations: baseResponse.animations } : {}),
       ...(baseResponse.animationSource ? { animationSource: baseResponse.animationSource } : {}),
@@ -459,12 +476,18 @@ async function generateRigClips(args) {
 
 async function pollJobUntilDone(jobId, output) {
   const deadline = Date.now() + GENERATE_TIMEOUT_MS;
+  let previousSummary = "";
   for (;;) {
     const job = await apiRequest("GET", `/api/asset-jobs/${encodeURIComponent(jobId)}`);
     await writeProgressFile(output.progressFile, job).catch(() => undefined);
+    const summary = progressSummary(job);
+    if (summary !== previousSummary) {
+      reportCliProgress(summary);
+      previousSummary = summary;
+    }
     if (job.done) return job;
     if (Date.now() > deadline) {
-      throw new Error(`Timed out after ${Math.round(GENERATE_TIMEOUT_MS / 1000)}s waiting for asset job ${jobId} (status: ${job.status}).`);
+      throw new Error(`Asset generation timed out after ${Math.round(GENERATE_TIMEOUT_MS / 1000)} seconds.`);
     }
     await sleep(POLL_INTERVAL_MS);
   }
@@ -476,8 +499,9 @@ async function downloadJobAssets(job, output) {
   const downloaded = [];
   for (const asset of assets) {
     const animationClips = await downloadAnimationClips(asset, output);
+    const publicAsset = { id: asset.id, role: asset.role, name: asset.name, animationClips };
     if (!asset.downloadUrl) {
-      downloaded.push({ ...asset, localUrl: undefined, animationClips });
+      downloaded.push({ ...publicAsset, error: publicErrorMessage(asset.error || "No downloadable GLB was returned.") });
       continue;
     }
     const fileName = `${asset.id}.glb`;
@@ -485,9 +509,9 @@ async function downloadJobAssets(job, output) {
     try {
       const bytes = await apiDownload(asset.downloadUrl);
       await writeFile(filePath, bytes);
-      downloaded.push({ ...asset, localUrl: `${output.publicPath}/${fileName}`, localFile: filePath, bytes: bytes.byteLength, animationClips });
+      downloaded.push({ ...publicAsset, localUrl: `${output.publicPath}/${fileName}`, bytes: bytes.byteLength });
     } catch (error) {
-      downloaded.push({ ...asset, localUrl: undefined, animationClips, error: `Download failed: ${error instanceof Error ? error.message : String(error)}` });
+      downloaded.push({ ...publicAsset, error: `Download failed: ${publicErrorMessage(error)}` });
     }
   }
   return downloaded;
@@ -501,15 +525,15 @@ async function downloadAnimationClips(asset, output) {
     const fileName = `${asset.id}-${name}.glb`;
     const filePath = path.join(output.assetRootDir, fileName);
     if (!clip.downloadUrl) {
-      downloaded.push({ ...clip, localUrl: undefined });
+      downloaded.push({ name, preset: clip.preset, error: publicErrorMessage(clip.error || "No downloadable animation GLB was returned.") });
       continue;
     }
     try {
       const bytes = await apiDownload(clip.downloadUrl);
       await writeFile(filePath, bytes);
-      downloaded.push({ ...clip, localUrl: `${output.publicPath}/${fileName}`, localFile: filePath, bytes: bytes.byteLength });
+      downloaded.push({ name, preset: clip.preset, localUrl: `${output.publicPath}/${fileName}`, bytes: bytes.byteLength });
     } catch (error) {
-      downloaded.push({ ...clip, localUrl: undefined, error: `Download failed: ${error instanceof Error ? error.message : String(error)}` });
+      downloaded.push({ name, preset: clip.preset, error: `Download failed: ${publicErrorMessage(error)}` });
     }
   }
   return downloaded;
@@ -518,9 +542,9 @@ async function downloadAnimationClips(asset, output) {
 function buildLocalManifest(job, downloaded) {
   const remoteManifest = job.result?.manifest;
   const byId = new Map(downloaded.map((asset) => [asset.id, asset]));
-  const entries = Array.isArray(remoteManifest?.assets) ? remoteManifest.assets : [];
+  const entries = Array.isArray(remoteManifest?.assets) ? remoteManifest.assets : Array.isArray(job.result?.assets) ? job.result.assets : [];
   return {
-    ...(remoteManifest || { version: 1, gamePrompt: job.gamePrompt || "", usage: "" }),
+    ...sanitizeProviderFields(remoteManifest || { version: 1, gamePrompt: job.gamePrompt || "", usage: "" }),
     assets: entries
       .map((entry) => {
         const local = byId.get(entry.id);
@@ -528,9 +552,20 @@ function buildLocalManifest(job, downloaded) {
         const localClips = (local.animationClips || entry.animationClips || [])
           .map((clip) => (clip.localUrl ? { name: clip.name, preset: clip.preset, url: clip.localUrl, format: "glb" } : undefined))
           .filter(Boolean);
+        const cleanEntry = sanitizeProviderFields(entry);
+        const localActions = Object.fromEntries(
+          Object.entries(cleanEntry.actions || {})
+            .map(([name, action]) => {
+              const clip = local.animationClips?.find((candidate) => candidate.name === name || candidate.preset?.endsWith(`:${name}`));
+              return clip?.localUrl ? [name, { ...action, url: clip.localUrl }] : undefined;
+            })
+            .filter(Boolean)
+        );
         return {
-          ...entry,
+          ...cleanEntry,
           url: local.localUrl,
+          ...(cleanEntry.model ? { model: { ...cleanEntry.model, url: local.localUrl } } : {}),
+          ...(Object.keys(localActions).length ? { actions: localActions } : cleanEntry.actions ? { actions: {} } : {}),
           ...(localClips.length ? { animationClips: localClips } : {})
         };
       })
@@ -542,7 +577,7 @@ async function writeProgressFile(progressFile, job) {
   await mkdir(path.dirname(progressFile), { recursive: true });
   await writeFile(
     progressFile,
-    JSON.stringify({ jobId: job.id, status: job.status, updatedAt: job.updatedAt, jobs: job.progress || [] }, null, 2)
+    JSON.stringify({ status: job.status, updatedAt: job.updatedAt, jobs: (job.progress || []).map(sanitizeProgressJob) }, null, 2)
   );
 }
 
@@ -554,8 +589,48 @@ async function readExistingManifest(manifestFile) {
   }
 }
 
+async function findReusableAssetIds(manifest, requested, workspace) {
+  const existing = Array.isArray(manifest?.assets) ? manifest.assets : [];
+  const reusable = [];
+  for (const asset of requested) {
+    const entry = existing.find((candidate) => candidate?.id === asset.id);
+    const runtimeUrl = entry?.model?.url || entry?.url;
+    if (runtimeUrl && (await localRuntimeAssetExists(runtimeUrl, workspace))) reusable.push(asset.id);
+  }
+  return reusable;
+}
+
+async function localRuntimeAssetExists(runtimeUrl, workspace) {
+  if (typeof runtimeUrl !== "string" || /^https?:\/\//i.test(runtimeUrl)) return false;
+  const publicDir = path.resolve(workspace, "public");
+  const relative = runtimeUrl.replace(/^\.\//, "").replace(/^public\//, "").replace(/^\/+/, "");
+  const file = path.resolve(publicDir, relative);
+  if (!file.startsWith(`${publicDir}${path.sep}`)) return false;
+  try {
+    const info = await stat(file);
+    return info.isFile() && info.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+function mergeManifests(existing, generated, replaceIds, route) {
+  if (!existing) return generated;
+  const publicExisting = sanitizeProviderFields(existing);
+  const replacing = new Set(replaceIds);
+  const oldAssets = Array.isArray(publicExisting.assets) ? publicExisting.assets.filter((asset) => !replacing.has(asset?.id)) : [];
+  const newAssets = Array.isArray(generated.assets) ? generated.assets : [];
+  return {
+    ...publicExisting,
+    ...generated,
+    route: existing.route && existing.route !== route ? "mixed" : generated.route || existing.route || route,
+    bindings: { ...(existing.bindings || {}), ...(generated.bindings || {}) },
+    assets: [...oldAssets, ...newAssets]
+  };
+}
+
 async function upsertRigClipManifest(manifestFile, entry) {
-  const existing = await readExistingManifest(manifestFile);
+  const existing = sanitizeProviderFields(await readExistingManifest(manifestFile));
   const assets = Array.isArray(existing?.assets) ? existing.assets.slice() : [];
   const index = assets.findIndex((asset) => asset && asset.id === entry.id);
   const previous = index >= 0 ? assets[index] : {};
@@ -601,15 +676,90 @@ function collectJobErrors(job) {
   const errors = [];
   if (job.error) errors.push(job.error);
   if (Array.isArray(job.result?.errors)) errors.push(...job.result.errors);
-  return errors;
+  return errors.map(publicErrorMessage);
+}
+
+function sanitizeProgressJob(job) {
+  return {
+    id: job.id,
+    label: job.label || job.name,
+    status: job.status,
+    progress: job.progress ?? job.modelProgress ?? 0,
+    ...(job.error ? { error: publicErrorMessage(job.error) } : {}),
+    ...(job.rig ? {
+      rig: {
+        status: job.rig.status,
+        progress: job.rig.progress,
+        animationClips: (job.rig.animationClips || []).map((clip) => ({
+          name: clip.name,
+          preset: clip.preset,
+          status: clip.status,
+          progress: clip.progress
+        }))
+      }
+    } : {})
+  };
+}
+
+function sanitizeProviderFields(value) {
+  if (Array.isArray(value)) return value.map(sanitizeProviderFields);
+  if (!value || typeof value !== "object") return value;
+  const hidden = new Set(["downloadurl", "sourceurl", "modelurl", "taskid", "jobid", "originalmodeltaskid", "referenceimageurl"]);
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !hidden.has(key.toLowerCase()))
+      .map(([key, child]) => (/error|reason|message/i.test(key) && typeof child === "string" ? [key, publicErrorMessage(child)] : [key, sanitizeProviderFields(child)]))
+  );
+}
+
+function publicErrorMessage(error) {
+  let message = error instanceof Error ? error.message : typeof error === "string" ? error : JSON.stringify(error || "Asset generation failed.");
+  if (/gemini|reference.?image/i.test(message) && /401|unauthenticated|credential|access.?token|unsupported/i.test(message)) {
+    return "Reference image generation is temporarily unavailable.";
+  }
+  if (/balance|insufficient|quota|credit/i.test(message)) return "Asset generation capacity is temporarily unavailable.";
+  if (/timed?\s*out|abort/i.test(message)) return "Asset generation timed out.";
+  message = message
+    .replace(/https?:\/\/\S+/gi, "[remote URL]")
+    .replace(/(?:task|job)[_\s-]*id\s*[:=]\s*[a-z0-9_-]+/gi, "remote job")
+    .replace(/(api[_\s-]*key|access[_\s-]*token|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]");
+  return message.slice(0, 240);
+}
+
+function isGeminiFallbackError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /gemini|reference.?image|white.?background|image.?generation/i.test(message) && /fail|error|401|unauthenticated|credential|access.?token|unsupported|unavailable/i.test(message);
+}
+
+function publicReadiness(remote) {
+  const tripoUnavailable = remote?.keyStatus?.tripoApiKey === false || remote?.tripo?.available === false || remote?.tripo?.configured === false || remote?.routes?.tripo?.available === false;
+  const geminiUnavailable = remote?.keyStatus?.geminiApiKey === false || remote?.geminiBudget?.geminiConfigured === false || remote?.gemini?.configured === false || remote?.routes?.gemini_reference?.available === false;
+  return {
+    status: remote?.status === "ok" ? "ok" : "needs_setup",
+    routes: {
+      tripo: tripoUnavailable ? "unavailable" : "ready",
+      gemini_reference: geminiUnavailable ? "unavailable" : "configured_unverified"
+    }
+  };
+}
+
+function progressSummary(job) {
+  const jobs = Array.isArray(job.progress) ? job.progress : [];
+  const values = jobs.map((item) => Number(item.progress ?? item.modelProgress)).filter(Number.isFinite);
+  const percent = values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+  const completed = jobs.filter((item) => /success|ready|complete/i.test(item.status || "")).length;
+  return `${job.status || "running"}: ${percent}%${jobs.length ? ` (${completed}/${jobs.length})` : ""}`;
+}
+
+function reportCliProgress(message) {
+  if (cliCommand) process.stderr.write(`[game-assets] ${message}\n`);
 }
 
 async function apiRequest(method, apiPath, body) {
   const response = await fetchWithTimeout(`${API_BASE}${apiPath}`, {
     method,
     headers: {
-      ...(body ? { "content-type": "application/json" } : {}),
-      ...(API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {})
+      ...(body ? { "content-type": "application/json" } : {})
     },
     ...(body ? { body: JSON.stringify(body) } : {})
   });
@@ -630,7 +780,7 @@ async function apiDownload(downloadPath) {
   const url = /^https?:\/\//i.test(downloadPath) ? downloadPath : `${API_BASE}${downloadPath}`;
   const response = await fetchWithTimeout(
     url,
-    { headers: API_TOKEN ? { authorization: `Bearer ${API_TOKEN}` } : {} },
+    {},
     // GLB 文件可能几十 MB，下载超时独立于普通 API 请求。
     300000
   );
@@ -731,15 +881,16 @@ async function isWritableDirectory(dir) {
 function readinessMessage(remote, workspaceWritable) {
   if (!workspaceWritable) return "The provided cwd does not exist or is not accessible.";
   if (remote.status === "unreachable") {
-    return `Asset API at ${API_BASE} is unreachable: ${remote.message}. Check the default asset service, network access, and GAME_ASSETS_API_TOKEN if required; set GAME_ASSETS_API_URL only when overriding the default service.`;
+    return `Asset API at ${API_BASE} is unreachable: ${remote.message}. Check network access; set GAME_ASSETS_API_URL only when overriding the default service.`;
   }
   if (remote.status === "needs_setup") return "Asset API is reachable but not fully configured on the server (missing keys).";
-  return "Asset API is reachable. Tripo and Gemini reference routes are available.";
+  const gemini = remote.routes.gemini_reference === "configured_unverified" ? "configured and verified on first use" : remote.routes.gemini_reference;
+  return `Asset API is reachable. Tripo is ${remote.routes.tripo}; Gemini reference is ${gemini}.`;
 }
 
 function summarizeGenerationResult(route, job, downloaded, output) {
   const count = downloaded.filter((asset) => asset.localUrl).length;
-  return `${route} generation returned ${job.status} with ${count} loadable asset(s) via job ${job.id}. Manifest: ${output.manifestFile}`;
+  return `${route} generation returned ${job.status} with ${count} loadable asset(s). Manifest: ${output.manifestFile}`;
 }
 
 function safeId(value) {

@@ -16,11 +16,11 @@ Before taking task actions with this skill, perform a best-effort self-update ch
 - Compare the local commit with the upstream commit. If the upstream is ahead and there are no local uncommitted changes under this skill directory, update with a fast-forward-only command such as `git pull --ff-only`, then re-read the updated `SKILL.md` before continuing.
 - If the skill directory has local changes, the repository has no remote/upstream, the remote check fails, or a fast-forward update is not possible, do not overwrite local files and do not block the user's task. Briefly note that the installed skill could not be auto-updated and continue with the local copy.
 - Do not use browser use or computer use for this update check. Use local git or the available plugin/skill installer tooling only when it is already part of the user's installed skill workflow.
-- This self-update check is for the skill files only. It does not authorize asset API readiness/generation/animation calls and does not replace the `GAME_ASSETS_API_TOKEN` and remote-call authorization rules below.
+- This self-update check is for the skill files only. It does not make or authorize asset-generation calls.
 
 ## Required behavior
 
-- For every task that generates, regenerates, rigs, animates, or integrates GLB assets, create or restore the canonical local preview/progress page by default, even when the user did not ask for it. Make the current-run plan and preview setup the first local asset action after locating the workspace, before token/authorization checks, remote calls, or GLB integration, then keep status synchronized until the task finishes.
+- For every task that generates, regenerates, rigs, animates, or integrates GLB assets, create or restore the canonical local preview/progress page by default, even when the user did not ask for it. Make the current-run plan and preview setup the first local asset action after locating the workspace, before remote calls or GLB integration, then keep status synchronized until the task finishes.
 - Skip the default preview only for publish-only requests, help/explanation-only requests, readiness-only or other read-only inspection that does not generate/integrate asset files, or when the user explicitly declines a preview page.
 - If the game prompt contains explicit or implicit entities, such as a player, character, enemy, collectible, vehicle, weapon, obstacle, boss, mascot, key prop, or environment object, GLB generation is a required stage when the tool is available.
 - Generate only 1-3 key assets by default. Prioritize the player/main character first, then the gameplay-critical enemy, collectible, vehicle, hazard, or key prop. Do not generate decorative filler.
@@ -28,13 +28,12 @@ Before taking task actions with this skill, perform a best-effort self-update ch
 - For regeneration work with concrete characters or critical entity props, use the Gemini-Tripo branch (`route: "gemini_reference"`) for those key assets and keep that set to 1-5 models total. If the client/API batch cap is lower than the requested total, split into multiple generate calls.
 - For secondary static props that do not need strong visual control or rigged animation, use the faster Tripo branch (`route: "tripo"`) and keep that set to 3-10 models total. Do not include decorative filler just to reach the lower bound.
 - Use primitive Three.js geometry only as an interim placeholder while assets are pending and as the runtime fallback if a GLB fails to load.
-- If the current task requires asset readiness, generation, animation, or integration and `GAME_ASSETS_API_TOKEN` is missing, stop that game-generation or asset-integration workflow and ask the user for the token. A publish-only request does not require the asset token.
-- If an asset API call is required and `GAME_ASSETS_API_TOKEN` exists but the user has not clearly authorized sending it to `GAME_ASSETS_API_URL` or the default remote asset service, stop before that remote call and ask for explicit authorization. Do not treat token presence as consent to send it to an external IP or host.
-- If remote asset authorization is denied, blocked by policy, or the asset service is unreachable, pause the asset generation workflow and ask the user how to proceed. Do not silently replace requested GLB generation with local placeholder/procedural models and present that as completed `shark-game-assets` work.
+- Use the configured asset-generation service as a public anonymous endpoint from Codex, Claude Code, other compatible agent clients, and direct CLI installs. Do not request, read, send, store, mention, or expose any client credential; asset-generation users need neither a login nor a token.
+- If the asset service is unreachable or a platform policy blocks the remote call, pause the asset workflow and report that the asset service is temporarily unavailable. Do not ask the user for credentials and do not silently replace requested GLB generation with local placeholders.
 - Do not regenerate existing assets unless the user explicitly asks. If `asset_manifest.json` already has loadable assets, reuse it.
 - Avoid copyrighted characters, brand names, logos, and celebrity likenesses. Rewrite into original designs.
 - After a game is complete and locally verified, you may ask once whether the user wants to publish it to their Shark portal. Never upload automatically or infer consent from asset-generation authorization.
-- Portal publishing requires a separate `SHARK_PORTAL_TOKEN` and explicit authorization to send the built static files and that token to `SHARK_PORTAL_URL`. Never reuse `GAME_ASSETS_API_TOKEN` for publishing.
+- Portal publishing requires a separate `SHARK_PORTAL_TOKEN` and explicit authorization to send the built static files and that token to `SHARK_PORTAL_URL`.
 
 ## Default Live Preview For Asset Tasks
 
@@ -52,7 +51,7 @@ node <skill-dir>/scripts/sync-regeneration-status.mjs --cwd "$(pwd)" --watch --i
 
 - Only when the user explicitly requests regeneration without historical reuse, generate fresh stable ids, pass `force: true`, and prevent old GLBs from re-entering the plan, status, manifest, or game.
 - Treat the preview website as a first-class subtask of asset work. Organize generation tasks as: preview/plan setup, model or action generation, status/manifest update, then game integration.
-- The setup and synchronizer are local-only and use no token, so restore or create the preview before checking token presence or remote-call authorization. If a later remote gate blocks progress, leave the page available with pending status. For integration-only work with existing local GLBs, create the preview before modifying game integration code.
+- The setup and synchronizer are local-only, so restore or create the preview before the first remote call. If remote access later fails, leave the page available with pending status. For integration-only work with existing local GLBs, create the preview before modifying game integration code.
 - Keep this preview website lightweight and standardized so it does not materially slow the game generation task. Copy the template, write/update JSON, bundle the preview script, and start or reuse the local static/dev server; do not redesign the page or add custom UI unless the user explicitly asks.
 - Treat the bundled template files in `templates/regeneration/` as the canonical source of truth for `/regeneration.html`, not as loose inspiration. In the blood moon castle project this canonical page is served as `http://127.0.0.1:4173/regeneration.html`; if the dev server uses a different port, keep the same path and UI structure. Do not scrape or download the localhost URL at runtime; that URL is only a served instance of the bundled template.
 - When a project is missing this page, or when the page has drifted from the contract, run `setup-regeneration-preview.mjs`. It restores the canonical HTML/source, initializes missing plan/status files, bundles the viewer, and writes a content-hash cache buster into the script URL.
@@ -93,24 +92,19 @@ Use `auto` only when you are comfortable with the server choosing from the promp
 
 ## Environment
 
-The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks to the default remote asset API at `https://studio.13-216-49-19.sslip.io`.
+The generation client is bundled with this skill at `scripts/game-assets-mcp.mjs` (Node >= 20, zero dependencies). It talks anonymously to the default public asset API at `https://studio.13-216-49-19.sslip.io`.
 
 - `GAME_ASSETS_API_URL` — optional override for the asset API base URL
-- `GAME_ASSETS_API_TOKEN` — required per-user access token
 - `SHARK_PORTAL_URL` — required only when publishing a completed game; the Coding Agent portal base URL
-- `SHARK_PORTAL_TOKEN` — required only when publishing; a least-privilege portal upload token, separate from the asset token
+- `SHARK_PORTAL_TOKEN` — required only when publishing; a least-privilege portal upload token
 
-`GAME_ASSETS_API_TOKEN` is mandatory for asset API operations. Before running readiness, generate, animate, or any other asset API action, check that the token is present in the environment or already provided in the conversation. If the token is missing, stop the game-generation or asset-integration workflow that needs those operations and ask the user to provide it; do not substitute procedural assets or assume generation can proceed. A publish-only workflow uses only the separate portal variables. Only ask for `GAME_ASSETS_API_URL` when the user needs to override the default service. Never ask for Tripo or Gemini API keys; they live on the server.
-
-Token presence is not remote-call consent. Before sending `GAME_ASSETS_API_TOKEN` to the default asset service (`https://studio.13-216-49-19.sslip.io`) or to a custom `GAME_ASSETS_API_URL`, confirm that the user authorizes using that token with that service for readiness/generate/animate. If authorization is absent or ambiguous, ask a concise clarification such as: "I need to use `GAME_ASSETS_API_TOKEN` to call `https://studio.13-216-49-19.sslip.io` for asset readiness/generation/animation. Please confirm that this is authorized." Pause the asset workflow until the user confirms.
-
-If the remote call is blocked by policy because it would send the token to an external host, explain that authorization is required and ask the user to confirm or provide a different approved asset service URL. Do not continue by creating a local procedural placeholder version unless the user explicitly changes scope and asks for a non-GLB prototype; in that case, clearly state that `shark-game-assets` GLB generation has not been completed.
+Asset readiness, generation, animation, and download operations require no user login or client token. Never ask for Tripo, Gemini, or asset-service keys; all provider credentials live on the server. Only ask for `GAME_ASSETS_API_URL` when the user explicitly wants to override the default service. Runtime/platform policy may still block a remote call and must never be bypassed.
 
 ## Help / Trigger Examples
 
-When the user asks "how do I use this skill?", "how do I trigger this skill?", "help", "怎么使用这个 skill", "怎么触发这个 skill", or similar, summarize the token requirement and show examples like these.
+When the user asks "how do I use this skill?", "how do I trigger this skill?", "help", "怎么使用这个 skill", "怎么触发这个 skill", or similar, explain that asset generation works without login or a token and show examples like these.
 
-For asset-generation help, always mention that `GAME_ASSETS_API_TOKEN` is required before any asset API readiness/generate/animate call. For publish-only help, mention `SHARK_PORTAL_URL` and `SHARK_PORTAL_TOKEN` instead.
+For publish-only help, mention the separate `SHARK_PORTAL_URL` and `SHARK_PORTAL_TOKEN` requirements.
 
 Explicit skill invocation examples:
 
@@ -157,7 +151,7 @@ Natural-language trigger examples that do not explicitly name the skill:
 For asset generation or integration tasks, prefer MCP tools named `mcp__game_assets__*` when available. Otherwise run the bundled client via Bash. Both expose the same readiness, generate, and animate operations. Skip this workflow for a publish-only request.
 
 1. Run `pwd` if you do not already know the current workspace path.
-2. Write the current task's actual `regeneration-plan.json`, then create/restore the preview, reset derived status for that plan, and start the synchronizer before checking the token, requesting remote authorization, making any asset API call, or changing integration code:
+2. Write the current task's actual `regeneration-plan.json`, then create/restore the preview, reset derived status for that plan, and start the synchronizer before making any asset API call or changing integration code:
 
 ```bash
 node <skill-dir>/scripts/setup-regeneration-preview.mjs \
@@ -170,16 +164,15 @@ node <skill-dir>/scripts/sync-regeneration-status.mjs \
   --interval 1000
 ```
 
-   Start or reuse a local server and provide `/regeneration.html` early when practical. For an integration-only task with existing local GLBs, populate the plan from `asset_manifest.json`, run the same setup/synchronizer, and make existing base/action GLBs previewable before changing integration code. These local preview actions do not send `GAME_ASSETS_API_TOKEN` anywhere.
-3. Confirm `GAME_ASSETS_API_TOKEN` is available. If it is absent, ask the user for it and pause remote generation or asset integration until they provide it; leave the preview page in its pending state. Do not build a procedural Three.js fallback game or continue with primitive stand-ins while waiting.
-4. Confirm the user has authorized sending `GAME_ASSETS_API_TOKEN` to the configured asset API host for readiness/generate/animate. If authorization is missing or ambiguous, ask for confirmation and pause the remote workflow while leaving the local preview available.
-5. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
+   Start or reuse a local server and provide `/regeneration.html` early when practical. For an integration-only task with existing local GLBs, populate the plan from `asset_manifest.json`, run the same setup/synchronizer, and make existing base/action GLBs previewable before changing integration code. These preview actions are local-only.
+3. Call the configured public asset API without requesting or sending a login or client token. Platform or sandbox restrictions still apply.
+4. If planning 3 or more assets, or if this is the first asset generation in the thread, check readiness (`<skill-dir>` is this skill's directory):
 
 ```bash
 node <skill-dir>/scripts/game-assets-mcp.mjs readiness --cwd "$(pwd)"
 ```
 
-6. Generate the selected asset set. By default generate 1-3 assets (batch max 4). For explicit game-regeneration requests, follow the quantity limits above: 1-5 Gemini-Tripo key entity models, and optionally 3-10 Tripo static prop models. Split into multiple generate calls when a desired set is larger than the current client/API batch cap. Pass parameters as one JSON object:
+5. Generate the selected asset set. By default generate 1-3 assets (batch max 4). For explicit game-regeneration requests, follow the quantity limits above: 1-5 Gemini-Tripo key entity models, and optionally 3-10 Tripo static prop models. Split into multiple generate calls when a desired set is larger than the current client/API batch cap. Pass parameters as one JSON object:
 
 ```bash
 node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
@@ -193,11 +186,11 @@ node <skill-dir>/scripts/game-assets-mcp.mjs generate --cwd "$(pwd)" --params '{
    - `assets`: objects with stable kebab-case `id`, `role`, `name`, `prompt`, and optionally `assetKind`; keep counts within the default or regeneration-specific limits.
    - On `gemini_reference`, character/creature assets are automatically rigged after GLB generation. Prefer `animationClips` when present; if Tripo retarget failed, expect main-GLB fallback fields `animations: ["Idle", "Walk"]` and `animationSource: "procedural_native_clips"`.
    - `force`: only when the user explicitly asked to regenerate assets.
-   - The command blocks while polling the remote job (typically 1-3 minutes per batch) and prints a JSON result; exit code 1 means the batch failed.
-7. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth and keep the preview synchronizer running until every successful local GLB/action appears.
-8. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`. Treat the manifest as a semantic registry: choose assets by `bindings`, `id`, or `role`, and choose animations by `actions.<name>.url` or legacy `animationClips[].name`/`preset`, never by guessing file names or folders.
-9. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
-10. Run `validate-regeneration-preview.mjs`, then stop the synchronizer normally after final status and manifest are stable.
+   - The command reports concise progress on stderr while polling (typically 1-3 minutes per batch), then prints JSON on stdout; exit code 1 means the batch failed.
+6. After the command returns, read `asset_manifest.json` from `cwd`. Treat that file as the source of truth and keep the preview synchronizer running until every successful local GLB/action appears.
+7. Wire `manifest.assets` into the game code with Three.js `GLTFLoader`. Treat the manifest as a semantic registry: choose assets by `bindings`, `id`, or `role`, and choose animations by `actions.<name>.url` or legacy `animationClips[].name`/`preset`, never by guessing file names or folders.
+8. Keep a local primitive fallback for every generated asset. The game must remain playable when a GLB fails to load.
+9. Run `validate-regeneration-preview.mjs`, then stop the synchronizer normally after final status and manifest are stable.
 
 ## Publish a completed game to the Shark portal
 
@@ -480,17 +473,28 @@ Whenever this skill builds, regenerates, or substantially revises a playable bro
 
 ## Existing GLB animation clip generation
 
+### Mechanical rigid-part animation
+
+For vehicles, machines, doors, fans, wheels, rotors, turrets, and similar rigid moving parts, do not default to character rigging. When Tripo returns a static GLB but the requested motion is a rigid rotation or translation, use this workflow:
+
+1. Inspect the GLB scene graph and mesh connectivity to identify the intended moving component; never classify it from the prompt or coordinates alone.
+2. If the component is a distinct node or separable connected mesh, split it into its own node while preserving materials, normals, UVs, and transforms.
+3. Infer the pivot and motion axis from component bounds, symmetry, attachment geometry, and the requested behavior. Treat the result as unverified when those cues disagree.
+4. Author a native glTF translation/rotation animation clip, use a stable semantic name such as `RotorSpin` or `DoorOpen`, and export a new GLB without overwriting the static source.
+5. Verify that the output GLB loads, contains the expected nodes and animation channels, and keeps non-moving geometry stationary. Preview at least one animation cycle before marking it ready.
+6. Record the clip in manifest `actions` and label its source `native_gltf_animation` or `procedural_native_clip`; do not describe it as a Tripo-generated animation.
+
+Use this path only with high-confidence component separation and pivot inference. If the moving part is welded into the body, shares triangles with unrelated geometry, or has an ambiguous pivot, do not guess destructively: keep the static GLB, use a runtime group animation only when the whole group is the intended moving part, or report that the asset needs regeneration with explicitly separated parts. Model-specific coordinate thresholds and segmentation scripts are one-off artifacts, not reusable defaults.
+
 Use the bundled subskill [tripo-rig-clip](subskills/tripo-rig-clip.md) when the user asks to animate, rig, auto-rig, retarget, or add idle/walk/run/jump clips to an existing GLB or Tripo task. Also treat it as the required continuation of the `gemini_reference` route for character/creature assets. Load that file before doing existing-GLB animation work or explaining the Gemini character pipeline.
 
 ## Failure handling
 
-- Missing `GAME_ASSETS_API_TOKEN`: stop before any readiness/generate/animate call and ask the user to provide `GAME_ASSETS_API_TOKEN`. Do not continue the asset generation workflow, game shell implementation, or asset integration until the token is available. Do not downgrade to a playable Three.js procedural-model version, primitive-only prototype, or placeholder-based implementation.
-- Missing remote-token authorization: stop before any readiness/generate/animate call and ask the user to confirm that `GAME_ASSETS_API_TOKEN` may be sent to the configured asset API host. Do not proceed just because the token exists.
-- Remote call blocked by policy, denied by the user, or asset API unreachable (readiness reports `unreachable`): explain the specific blocker and ask the user whether to authorize the remote call, provide a different approved `GAME_ASSETS_API_URL`, or explicitly change scope to a non-GLB prototype. Do not silently continue with local placeholder/procedural models or present a primitive-only version as completed asset generation. Runtime primitive fallbacks remain allowed only as fallbacks around generated or existing assets, not as a substitute for a requested authenticated generation step.
-- Server missing Gemini key on the `gemini_reference` route: switch to `tripo` if acceptable, or tell the user the server operator must configure the Gemini key.
+- Remote call blocked by policy or asset API unreachable: report that the asset service is temporarily unavailable. Do not ask for credentials and never silently substitute placeholders for requested GLB generation.
+- Gemini reference generation unavailable: the client retries the same assets once through `tripo`, then reports a concise failure if that also fails.
 - Zero Tripo balance: do not retry in a loop. Keep fallbacks and record the skipped stage in the README.
 - Partial success: use generated assets that succeeded and fallback geometry for the rest.
-- Portal `401`: stop and ask for a valid `SHARK_PORTAL_TOKEN`; do not fall back to the asset token.
+- Portal `401`: stop and ask for a valid `SHARK_PORTAL_TOKEN`.
 - Portal `413`: reduce only the built artifact size (for example compress textures/audio or remove unused build assets), rebuild, and run `check` again.
 - Portal `422`: fix the reported static-build/path/metadata issue locally and rerun `check`; never bypass the validation by uploading the project root.
 - Portal `409` or a transient network failure: retry the identical checked build so the same `clientUploadId` is reused. Do not change metadata merely to force a duplicate upload.

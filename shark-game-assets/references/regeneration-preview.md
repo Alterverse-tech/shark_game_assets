@@ -146,7 +146,7 @@ node <skill-dir>/scripts/sync-regeneration-status.mjs \
   --interval 1000
 ```
 
-Do this immediately after locating the workspace and before token checks, remote authorization, readiness/generate/animate calls, or integration code changes. These preview scripts are local-only, use no token, and make no remote calls. If a remote gate later blocks the task, keep the page available with pending status.
+Do this immediately after locating the workspace and before readiness/generate/animate calls or integration code changes. These preview scripts are local-only and make no remote calls. If remote access later fails, keep the page available with pending status.
 
 For split batches, write each client run under `.asset-batches/<batch-name>`; the watcher discovers them automatically.
 

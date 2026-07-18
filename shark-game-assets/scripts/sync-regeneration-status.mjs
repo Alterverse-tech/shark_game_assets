@@ -11,8 +11,8 @@ const intervalMs = Math.max(250, Number(option("interval") || 1000));
 const batchRoot = path.resolve(cwd, option("batch-root") || ".asset-batches");
 const statusPath = path.resolve(cwd, option("status") || "public/regeneration-status.json");
 const planPath = await resolvePlanPath();
-const plan = normalizePlan(await readRequiredJson(planPath));
-const notBeforeMs = Date.parse(plan.startedAt || "") || 0;
+let plan;
+let notBeforeMs = 0;
 
 function option(name) {
   const exact = `--${name}`;
@@ -271,6 +271,8 @@ function signatureOf(status) {
 }
 
 async function syncOnce() {
+  plan = normalizePlan(await readRequiredJson(planPath));
+  notBeforeMs = Date.parse(plan.startedAt || "") || 0;
   const items = plan.items.map(emptyItem);
   const byId = new Map(items.map((item) => [item.id, item]));
   const sources = await discoverSources();

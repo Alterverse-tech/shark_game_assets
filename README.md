@@ -57,23 +57,15 @@ npx skills add https://github.com/Alterverse-tech/shark_game_assets \
 
 After installation, the skill becomes available to compatible coding agents on your machine.
 
-## Authentication
+## Public Access
 
-Shark Game Assets uses a remote asset-generation service and requires an API token.
+Shark Game Assets uses a public remote asset-generation service. Users can generate assets from Codex, Claude Code, other compatible clients, or direct CLI installs without creating an account or configuring a token.
 
-Contact the publisher to request access, then configure the token in your shell:
-
-```
-export GAME_ASSETS_API_TOKEN="<your-token>"
-```
-
-To make the token available across terminal sessions, add it to your shell configuration file.
-
-The client uses `https://studio.13-216-49-19.sslip.io` by default. Set `GAME_ASSETS_API_URL` only when overriding that service. Before readiness, generation, or animation calls, explicitly authorize sending `GAME_ASSETS_API_TOKEN` to the configured service; the agent must never print the token.
+The client uses `https://studio.13-216-49-19.sslip.io` by default. Set `GAME_ASSETS_API_URL` only when overriding that service. Tripo and Gemini provider credentials remain on the service and are never distributed with the skill.
 
 ## Usage
 
-Once installed and authenticated, ask your coding agent to generate the assets required by your game.
+Once installed, ask your coding agent to generate the assets required by your game.
 
 For example:
 
@@ -172,7 +164,7 @@ Output format: GLB
 
 Shark Game Assets is powered by a remote asset-generation service.
 
-Contact the publisher to request a `GAME_ASSETS_API_TOKEN`, install the skill, and start generating 3D assets directly from your coding workflow.
+No account or API token is required for asset generation.
 
 ## License
 
